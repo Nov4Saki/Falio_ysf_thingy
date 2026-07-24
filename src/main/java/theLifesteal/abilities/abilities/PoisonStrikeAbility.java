@@ -6,12 +6,12 @@ import org.bukkit.Sound;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -108,56 +108,54 @@ public class PoisonStrikeAbility extends ItemAbility {
         final double finalDps = totalDps;
         final double damagePerTick = finalDps / 2.0;
 
-        BukkitTask task = Bukkit.getScheduler().runTaskTimer(getPlugin(), new Runnable() {
-            int ticks = 0;
-            int maxTicks = duration * 20;
-            int damageTicks = 0;
+        int[] ticks = new int[]{0};
+        int maxTicks = duration * 20;
+        int[] damageTicks = new int[]{0};
 
-            @Override
-            public void run() {
-                PoisonData pd = activePoisons.get(victimId);
-                if (pd == null || pd.stacks != finalStacks) return;
+        FoliaScheduler.TaskHandle task = FoliaScheduler.runEntityTimer(victim, getPlugin(), taskHandle -> {
+            PoisonData pd = activePoisons.get(victimId);
+            if (pd == null || pd.stacks != finalStacks) return;
 
-                if (ticks >= maxTicks || victim.isDead() || !victim.isValid()) {
-                    if (pd.stacks == finalStacks) {
-                        pd.stacks = 0; // Mark expired, don't remove
-                        if (victim.isValid() && !victim.isDead()) {
-                            victim.sendMessage(ColorUtils.colorize("&a☠ Poison has worn off"));
-                        }
-                    }
-                    return;
-                }
-
-                if (ticks % 10 == 0 && ticks > 0) {
-                    processingDamage.add(victimId);
-                    dealAbilityDamage(attacker, victim, damagePerTick, (duration * 1000L) + 10000L);
-                    Bukkit.getScheduler().runTaskLater(getPlugin(), () -> processingDamage.remove(victimId), 1L);
-                    damageTicks++;
-
-                    victim.getWorld().spawnParticle(Particle.DUST,
-                            victim.getLocation().add(0, 1.5, 0),
-                            3, 0.2, 0.4, 0.2,
-                            new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 180, 0), 1.2f));
-
-                    if (damageTicks % 4 == 0 && victim instanceof Player) {
-                        victim.sendMessage(ColorUtils.colorize("&a☠ Poison tick &7-&c" + String.format("%.1f", damagePerTick) + "❤ &7(&a" + finalStacks + " stacks&7, &c" + String.format("%.1f", finalDps) + " DPS&7)"));
+            if (ticks[0] >= maxTicks || victim.isDead() || !victim.isValid()) {
+                if (pd.stacks == finalStacks) {
+                    pd.stacks = 0; // Mark expired, don't remove
+                    if (victim.isValid() && !victim.isDead()) {
+                        victim.sendMessage(ColorUtils.colorize("&a☠ Poison has worn off"));
                     }
                 }
-
-                if (ticks % 5 == 0) {
-                    for (int i = 0; i < 2; i++) {
-                        victim.getWorld().spawnParticle(Particle.DUST,
-                                victim.getLocation().add(
-                                        Math.random() * 0.4 - 0.2,
-                                        0.8 + Math.random() * 1.2,
-                                        Math.random() * 0.4 - 0.2),
-                                1, 0, 0, 0,
-                                new Particle.DustOptions(org.bukkit.Color.fromRGB(50, 200, 50), 0.8f));
-                    }
-                }
-
-                ticks++;
+                taskHandle.cancel();
+                return;
             }
+
+            if (ticks[0] % 10 == 0 && ticks[0] > 0) {
+                processingDamage.add(victimId);
+                dealAbilityDamage(attacker, victim, damagePerTick, (duration * 1000L) + 10000L);
+                FoliaScheduler.runEntityLater(victim, getPlugin(), () -> processingDamage.remove(victimId), 1L);
+                damageTicks[0]++;
+
+                victim.getWorld().spawnParticle(Particle.DUST,
+                        victim.getLocation().add(0, 1.5, 0),
+                        3, 0.2, 0.4, 0.2,
+                        new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 180, 0), 1.2f));
+
+                if (damageTicks[0] % 4 == 0 && victim instanceof Player) {
+                    victim.sendMessage(ColorUtils.colorize("&a☠ Poison tick &7-&c" + String.format("%.1f", damagePerTick) + "❤ &7(&a" + finalStacks + " stacks&7, &c" + String.format("%.1f", finalDps) + " DPS&7)"));
+                }
+            }
+
+            if (ticks[0] % 5 == 0) {
+                for (int i = 0; i < 2; i++) {
+                    victim.getWorld().spawnParticle(Particle.DUST,
+                            victim.getLocation().add(
+                                    Math.random() * 0.4 - 0.2,
+                                    0.8 + Math.random() * 1.2,
+                                    Math.random() * 0.4 - 0.2),
+                            1, 0, 0, 0,
+                            new Particle.DustOptions(org.bukkit.Color.fromRGB(50, 200, 50), 0.8f));
+                }
+            }
+
+            ticks[0]++;
         }, 0L, 1L);
 
         PoisonData poisonData = new PoisonData(newStacks, task, System.currentTimeMillis() + (duration * 1000L), totalDps);
@@ -187,11 +185,11 @@ public class PoisonStrikeAbility extends ItemAbility {
 
     private static class PoisonData {
         int stacks;
-        BukkitTask task;
+        FoliaScheduler.TaskHandle task;
         long expireTime;
         double dps;
 
-        PoisonData(int stacks, BukkitTask task, long expireTime, double dps) {
+        PoisonData(int stacks, FoliaScheduler.TaskHandle task, long expireTime, double dps) {
             this.stacks = stacks;
             this.task = task;
             this.expireTime = expireTime;

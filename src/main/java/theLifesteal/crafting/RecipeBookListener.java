@@ -53,7 +53,7 @@ public class RecipeBookListener implements Listener {
     public void onPlayerRespawn(PlayerRespawnEvent event) {
         Player player = event.getPlayer();
         if (recipeBookItem.giveOnRespawn()) {
-            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            theLifesteal.util.FoliaScheduler.runEntityLater(player, plugin, () -> {
                 ItemStack savedBook = deathBooks.remove(player);
                 boolean hasBook = false;
                 for (ItemStack item : player.getInventory().getContents()) {

@@ -7,13 +7,13 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -124,16 +124,13 @@ public class ChainLightningAbility extends ItemAbility {
             final Location to = targetLoc.clone();
             final int delay = i * 5;
 
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    drawLightningArc(from, to, 16);
-                    to.getWorld().spawnParticle(Particle.ELECTRIC_SPARK, to, 20, 0.3, 0.4, 0.3, 0.03);
-                    to.getWorld().spawnParticle(Particle.DUST, to, 10, 0.2, 0.4, 0.2,
-                            new Particle.DustOptions(org.bukkit.Color.fromRGB(100, 200, 255), 1.5f));
-                    to.getWorld().playSound(to, Sound.ENTITY_GLOW_SQUID_HURT, 0.2f, 1.5f);
-                }
-            }.runTaskLater(getPlugin(), delay);
+            FoliaScheduler.runRegionLater(to, getPlugin(), () -> {
+                drawLightningArc(from, to, 16);
+                to.getWorld().spawnParticle(Particle.ELECTRIC_SPARK, to, 20, 0.3, 0.4, 0.3, 0.03);
+                to.getWorld().spawnParticle(Particle.DUST, to, 10, 0.2, 0.4, 0.2,
+                        new Particle.DustOptions(org.bukkit.Color.fromRGB(100, 200, 255), 1.5f));
+                to.getWorld().playSound(to, Sound.ENTITY_GLOW_SQUID_HURT, 0.2f, 1.5f);
+            }, delay);
 
             prevLoc = targetLoc;
         }
@@ -166,38 +163,35 @@ public class ChainLightningAbility extends ItemAbility {
             pathPoints.add(point);
         }
 
-        new BukkitRunnable() {
-            int tick = 0;
+        int[] tick = new int[]{0};
 
-            @Override
-            public void run() {
-                if (tick >= durationTicks) {
-                    this.cancel();
-                    return;
-                }
+        FoliaScheduler.runRegionTimer(from, getPlugin(), task -> {
+            if (tick[0] >= durationTicks) {
+                task.cancel();
+                return;
+            }
 
-                for (int i = 0; i < pathPoints.size() - 1; i++) {
-                    Vector p1 = pathPoints.get(i);
-                    Vector p2 = pathPoints.get(i + 1);
-                    double segDist = p1.distance(p2);
-                    Vector segDir = p2.clone().subtract(p1).normalize();
+            for (int i = 0; i < pathPoints.size() - 1; i++) {
+                Vector p1 = pathPoints.get(i);
+                Vector p2 = pathPoints.get(i + 1);
+                double segDist = p1.distance(p2);
+                Vector segDir = p2.clone().subtract(p1).normalize();
 
-                    for (double d = 0; d < segDist; d += 0.4) {
-                        Location point = p1.toLocation(from.getWorld()).add(segDir.clone().multiply(d));
-                        point.add((Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1);
+                for (double d = 0; d < segDist; d += 0.4) {
+                    Location point = p1.toLocation(from.getWorld()).add(segDir.clone().multiply(d));
+                    point.add((Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1);
 
-                        from.getWorld().spawnParticle(Particle.DUST, point, 1, 0, 0, 0,
-                                new Particle.DustOptions(org.bukkit.Color.fromRGB(150, 220, 255), 1.2f));
+                    from.getWorld().spawnParticle(Particle.DUST, point, 1, 0, 0, 0,
+                            new Particle.DustOptions(org.bukkit.Color.fromRGB(150, 220, 255), 1.2f));
 
-                        if (Math.random() < 0.3) {
-                            from.getWorld().spawnParticle(Particle.ELECTRIC_SPARK, point, 1, 0, 0, 0, 0);
-                        }
+                    if (Math.random() < 0.3) {
+                        from.getWorld().spawnParticle(Particle.ELECTRIC_SPARK, point, 1, 0, 0, 0, 0);
                     }
                 }
-
-                tick++;
             }
-        }.runTaskTimer(getPlugin(), 0L, 1L);
+
+            tick[0]++;
+        }, 0L, 1L);
     }
 
     private LivingEntity findClosestTarget(LivingEntity source, Set<LivingEntity> exclude, int range) {

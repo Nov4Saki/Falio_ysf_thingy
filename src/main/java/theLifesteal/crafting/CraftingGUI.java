@@ -13,6 +13,7 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import net.kyori.adventure.text.Component;
 import theLifesteal.ColorUtils;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -371,7 +372,7 @@ public class CraftingGUI {
                 break;
             case 47:
                 if (player.hasPermission("thelifesteal.admin")) {
-                    Bukkit.getScheduler().runTaskLater(plugin,
+                    FoliaScheduler.runEntityLater(player, plugin,
                             () -> adminGUI.openAdminMenu(player), 1L);
                 }
                 break;
@@ -429,14 +430,6 @@ public class CraftingGUI {
             return;
         }
 
-        // ---- Clear completed button ----
-        if (slot == 50) {
-            craftingManager.clearClaimedProcesses(player.getUniqueId());
-            openActiveCrafts(player);
-            player.sendMessage(ColorUtils.colorize("&a✔ All completed items cleared!"));
-            return;
-        }
-
         int processIndex = slot - 10;
         List<CraftingProcess> processes = craftingManager.getPlayerProcesses(player.getUniqueId());
 
@@ -455,7 +448,7 @@ public class CraftingGUI {
                     if (craftingManager.claimItem(player, processIndex)) {
                         player.sendMessage(ColorUtils.colorize("&a✔ Item claimed successfully!"));
                         // Reopen after 1 tick to refresh
-                        Bukkit.getScheduler().runTaskLater(plugin, () -> openActiveCrafts(player), 1L);
+                        FoliaScheduler.runEntityLater(player, plugin, () -> openActiveCrafts(player), 1L);
                     }
                 }
             }

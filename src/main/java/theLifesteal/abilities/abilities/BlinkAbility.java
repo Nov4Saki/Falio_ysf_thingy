@@ -99,7 +99,7 @@ public class BlinkAbility extends ItemAbility {
         spawnShadowParticles(startLoc);
         player.getWorld().playSound(startLoc, Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 0.8f);
 
-        player.teleport(behind);
+        player.teleportAsync(behind);
 
         spawnShadowParticles(behind);
         player.getWorld().playSound(behind, Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.2f);

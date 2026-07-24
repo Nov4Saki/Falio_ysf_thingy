@@ -13,7 +13,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
-import org.bukkit.scheduler.BukkitTask;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -22,7 +22,7 @@ public class CustomItemEffectListener implements Listener {
     private final JavaPlugin plugin;
     private final AdvancedCustomItemManager manager;
     private final Map<UUID, Set<PotionEffectType>> activeEffects;
-    private BukkitTask refreshTask;
+    private FoliaScheduler.TaskHandle refreshTask;
 
     public CustomItemEffectListener(JavaPlugin plugin, AdvancedCustomItemManager manager) {
         this.plugin = plugin;
@@ -32,9 +32,9 @@ public class CustomItemEffectListener implements Listener {
     }
 
     private void startRefreshTask() {
-        refreshTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+        refreshTask = FoliaScheduler.runGlobalTimer(plugin, () -> {
             for (Player player : Bukkit.getOnlinePlayers()) {
-                refreshPlayerEffects(player);
+                FoliaScheduler.runEntity(player, plugin, () -> refreshPlayerEffects(player));
             }
         }, 20L, 20L); // Every 1 second
     }
@@ -109,19 +109,19 @@ public class CustomItemEffectListener implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> refreshPlayerEffects(player), 5L);
+        FoliaScheduler.runEntityLater(player, plugin, () -> refreshPlayerEffects(player), 5L);
     }
 
     @EventHandler
     public void onItemHeld(PlayerItemHeldEvent event) {
         Player player = event.getPlayer();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> refreshPlayerEffects(player), 1L);
+        FoliaScheduler.runEntityLater(player, plugin, () -> refreshPlayerEffects(player), 1L);
     }
 
     @EventHandler
     public void onSwapHandItems(PlayerSwapHandItemsEvent event) {
         Player player = event.getPlayer();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> refreshPlayerEffects(player), 1L);
+        FoliaScheduler.runEntityLater(player, plugin, () -> refreshPlayerEffects(player), 1L);
     }
 
     @EventHandler

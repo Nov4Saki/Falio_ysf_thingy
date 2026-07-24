@@ -17,6 +17,7 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.ItemAbilityManager;
+import theLifesteal.util.FoliaScheduler;
 
 import java.io.File;
 import java.io.IOException;
@@ -450,31 +451,33 @@ public class AdvancedCustomItemManager {
     }
 
     public void startDuplicateCheckTask() {
-        Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            Map<String, List<ItemStack>> found = new HashMap<>();
-            int deleted = 0;
-
+        FoliaScheduler.runGlobalTimer(plugin, () -> {
             for (Player player : Bukkit.getOnlinePlayers()) {
-                checkInventoryForDuplicates(player.getInventory().getContents(), found);
-                checkInventoryForDuplicates(player.getInventory().getArmorContents(), found);
-                ItemStack[] offhand = {player.getInventory().getItemInOffHand()};
-                checkInventoryForDuplicates(offhand, found);
-                checkInventoryForDuplicates(player.getEnderChest().getContents(), found);
-            }
+                FoliaScheduler.runEntity(player, plugin, () -> {
+                    Map<String, List<ItemStack>> found = new HashMap<>();
+                    int deleted = 0;
 
-            for (Map.Entry<String, List<ItemStack>> entry : found.entrySet()) {
-                if (entry.getValue().size() > 1) {
-                    for (int i = 1; i < entry.getValue().size(); i++) {
-                        entry.getValue().get(i).setAmount(0);
-                        deleted++;
+                    checkInventoryForDuplicates(player.getInventory().getContents(), found);
+                    checkInventoryForDuplicates(player.getInventory().getArmorContents(), found);
+                    ItemStack[] offhand = {player.getInventory().getItemInOffHand()};
+                    checkInventoryForDuplicates(offhand, found);
+                    checkInventoryForDuplicates(player.getEnderChest().getContents(), found);
+
+                    for (Map.Entry<String, List<ItemStack>> entry : found.entrySet()) {
+                        if (entry.getValue().size() > 1) {
+                            for (int i = 1; i < entry.getValue().size(); i++) {
+                                entry.getValue().get(i).setAmount(0);
+                                deleted++;
+                            }
+                            plugin.getLogger().warning("Deleted " + (entry.getValue().size() - 1) +
+                                    " duplicate(s) of item instance: " + entry.getKey());
+                        }
                     }
-                    plugin.getLogger().warning("Deleted " + (entry.getValue().size() - 1) +
-                            " duplicate(s) of item instance: " + entry.getKey());
-                }
-            }
 
-            if (deleted > 0) {
-                plugin.getLogger().info("Duplicate check: removed " + deleted + " duplicate items.");
+                    if (deleted > 0) {
+                        plugin.getLogger().info("Duplicate check: removed " + deleted + " duplicate items from player " + player.getName());
+                    }
+                });
             }
         }, 20L * 60, 20L * 60 * 5);
     }

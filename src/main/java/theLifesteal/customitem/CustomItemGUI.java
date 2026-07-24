@@ -12,6 +12,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffectType;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.ItemAbilityGUI;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -550,14 +551,14 @@ public class CustomItemGUI {
         EditingSession ses = sessions.get(p.getUniqueId());
         if (ses == null) return;
         switch (slot) {
-            case 28 -> { if (enchantGUI != null) { inTransition.add(p.getUniqueId()); p.closeInventory(); Bukkit.getScheduler().runTaskLater(plugin, () -> enchantGUI.openEnchantMenu(p, ses.item, () -> p.openInventory(buildEditMain(p))), 2L); } }
+            case 28 -> { if (enchantGUI != null) { inTransition.add(p.getUniqueId()); p.closeInventory(); FoliaScheduler.runEntityLater(p, plugin, () -> enchantGUI.openEnchantMenu(p, ses.item, () -> p.openInventory(buildEditMain(p))), 2L); } }
             case 29 -> { inTransition.add(p.getUniqueId()); p.openInventory(buildNameLore(p)); }
             case 30 -> { inTransition.add(p.getUniqueId()); p.openInventory(buildAttr(p)); }
             case 31 -> { inTransition.add(p.getUniqueId()); p.openInventory(buildFlags(p)); }
             case 32 -> { inTransition.add(p.getUniqueId()); p.openInventory(buildPotionEffects(p)); }
             case 33 -> { inTransition.add(p.getUniqueId()); p.openInventory(buildCategorySelector(p)); }
             case 34 -> { inTransition.add(p.getUniqueId()); p.openInventory(buildRaritySelector(p)); }
-            case 39 -> { if (abilityGUI != null) { inTransition.add(p.getUniqueId()); p.closeInventory(); Bukkit.getScheduler().runTaskLater(plugin, () -> abilityGUI.openAbilitiesMenu(p, ses.item, () -> p.openInventory(buildEditMain(p))), 2L); } }
+            case 39 -> { if (abilityGUI != null) { inTransition.add(p.getUniqueId()); p.closeInventory(); FoliaScheduler.runEntityLater(p, plugin, () -> abilityGUI.openAbilitiesMenu(p, ses.item, () -> p.openInventory(buildEditMain(p))), 2L); } }
             case 49 -> commitAndExit(p, true);
             case 50 -> { sessions.remove(p.getUniqueId()); p.closeInventory(); openMainMenu(p); }
         }

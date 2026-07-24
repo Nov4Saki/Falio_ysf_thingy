@@ -9,13 +9,13 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -104,36 +104,33 @@ public class GroundSlamAbility extends ItemAbility {
                     1, 0, 0, 0, 0.01);
         }
 
-        new BukkitRunnable() {
-            int ticks = 0;
+        int[] ticks = new int[]{0};
 
-            @Override
-            public void run() {
-                ticks++;
+        FoliaScheduler.runEntityTimer(player, getPlugin(), task -> {
+            ticks[0]++;
 
-                if (player.isOnGround() && ticks > 5) {
-                    executeSlam(player, slamRadius, damage, lightningStrikes, strikeDelay,
-                            slownessDuration, slownessAmplifier);
-                    this.cancel();
-                    return;
-                }
+            if (player.isOnGround() && ticks[0] > 5) {
+                executeSlam(player, slamRadius, damage, lightningStrikes, strikeDelay,
+                        slownessDuration, slownessAmplifier);
+                task.cancel();
+                return;
+            }
 
-                if (ticks > 200) {
-                    this.cancel();
-                    return;
-                }
+            if (ticks[0] > 200) {
+                task.cancel();
+                return;
+            }
 
-                // Falling particles — 2 sparks (was 4)
-                if (player.getVelocity().getY() < 0 && !player.isOnGround()) {
-                    Location airLoc = player.getLocation();
-                    for (int i = 0; i < 2; i++) {
-                        player.getWorld().spawnParticle(Particle.ELECTRIC_SPARK,
-                                airLoc.clone().add(Math.random() * 1.0 - 0.5, Math.random() * 1.0 - 0.5, Math.random() * 1.0 - 0.5),
-                                1, 0, 0, 0, 0);
-                    }
+            // Falling particles — 2 sparks (was 4)
+            if (player.getVelocity().getY() < 0 && !player.isOnGround()) {
+                Location airLoc = player.getLocation();
+                for (int i = 0; i < 2; i++) {
+                    player.getWorld().spawnParticle(Particle.ELECTRIC_SPARK,
+                            airLoc.clone().add(Math.random() * 1.0 - 0.5, Math.random() * 1.0 - 0.5, Math.random() * 1.0 - 0.5),
+                            1, 0, 0, 0, 0);
                 }
             }
-        }.runTaskTimer(getPlugin(), 0L, 1L);
+        }, 0L, 1L);
 
         player.sendMessage(ColorUtils.colorize("&e⚡ Ground Slam!"));
 
@@ -180,34 +177,31 @@ public class GroundSlamAbility extends ItemAbility {
         // Lightning strikes with delay
         for (int strike = 0; strike < lightningStrikes; strike++) {
             final long delay = (long) strike * strikeDelay;
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    for (Entity entity : player.getNearbyEntities(slamRadius, 5, slamRadius)) {
-                        if (entity instanceof LivingEntity && entity != player) {
-                            double dist = entity.getLocation().distance(groundLoc);
-                            if (dist <= slamRadius) {
-                                Location strikeLoc = entity.getLocation().clone();
-                                strikeLoc.getWorld().strikeLightningEffect(strikeLoc);
-                                dealAbilityDamage(player, (LivingEntity) entity, damage, 15000L);
+            FoliaScheduler.runRegionLater(groundLoc, getPlugin(), () -> {
+                for (Entity entity : player.getNearbyEntities(slamRadius, 5, slamRadius)) {
+                    if (entity instanceof LivingEntity && entity != player) {
+                        double dist = entity.getLocation().distance(groundLoc);
+                        if (dist <= slamRadius) {
+                            Location strikeLoc = entity.getLocation().clone();
+                            strikeLoc.getWorld().strikeLightningEffect(strikeLoc);
+                            dealAbilityDamage(player, (LivingEntity) entity, damage, 15000L);
 
-                                ((LivingEntity) entity).addPotionEffect(new PotionEffect(
-                                        PotionEffectType.SLOWNESS, slownessDuration * 20,
-                                        slownessAmplifier, false, true, true));
+                            ((LivingEntity) entity).addPotionEffect(new PotionEffect(
+                                    PotionEffectType.SLOWNESS, slownessDuration * 20,
+                                    slownessAmplifier, false, true, true));
 
-                                // OPTIMIZED: 8 sparks + 1 flash (was 20 sparks)
-                                for (int j = 0; j < 8; j++) {
-                                    strikeLoc.getWorld().spawnParticle(Particle.ELECTRIC_SPARK,
-                                            strikeLoc.clone().add(Math.random() * 2 - 1, Math.random() * 2, Math.random() * 2 - 1),
-                                            1, 0, 0, 0, 0);
-                                }
-                                strikeLoc.getWorld().spawnParticle(Particle.FLASH,
-                                        strikeLoc.clone().add(0, 1, 0), 1, 0, 0, 0, 0);
+                            // OPTIMIZED: 8 sparks + 1 flash (was 20 sparks)
+                            for (int j = 0; j < 8; j++) {
+                                strikeLoc.getWorld().spawnParticle(Particle.ELECTRIC_SPARK,
+                                        strikeLoc.clone().add(Math.random() * 2 - 1, Math.random() * 2, Math.random() * 2 - 1),
+                                        1, 0, 0, 0, 0);
                             }
+                            strikeLoc.getWorld().spawnParticle(Particle.FLASH,
+                                    strikeLoc.clone().add(0, 1, 0), 1, 0, 0, 0, 0);
                         }
                     }
                 }
-            }.runTaskLater(getPlugin(), delay);
+            }, delay);
         }
 
         // Ground rumble at feet — 8 cloud (was 15)

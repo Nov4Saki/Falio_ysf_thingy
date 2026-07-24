@@ -7,13 +7,13 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -77,77 +77,73 @@ public class AirSlashAbility extends ItemAbility {
         player.getWorld().playSound(start, Sound.ENTITY_BREEZE_WIND_BURST, 0.6f, 1.5f);
 
         Set<Entity> hitEntities = new HashSet<>();
+        double[] traveled = new double[]{0.0};
 
-        new BukkitRunnable() {
-            double traveled = 0;
+        FoliaScheduler.runRegionTimer(start, getPlugin(), task -> {
+            if (traveled[0] >= range) {
+                task.cancel();
+                return;
+            }
 
-            @Override
-            public void run() {
-                if (traveled >= range) {
-                    this.cancel();
-                    return;
-                }
+            Location current = start.clone().add(direction.clone().multiply(traveled[0]));
 
-                Location current = start.clone().add(direction.clone().multiply(traveled));
+            for (int i = 0; i < arcWidth * 2; i++) {
+                double offset = (i - arcWidth) * 0.5;
+                Vector perpendicular = getPerpendicular(direction);
+                Location particleLoc = current.clone().add(perpendicular.clone().multiply(offset));
 
-                for (int i = 0; i < arcWidth * 2; i++) {
-                    double offset = (i - arcWidth) * 0.5;
-                    Vector perpendicular = getPerpendicular(direction);
-                    Location particleLoc = current.clone().add(perpendicular.clone().multiply(offset));
+                double curveOffset = Math.sin(traveled[0] / range * Math.PI) * 0.3;
+                particleLoc.add(0, curveOffset, 0);
 
-                    double curveOffset = Math.sin(traveled / range * Math.PI) * 0.3;
-                    particleLoc.add(0, curveOffset, 0);
+                Particle.DUST.builder()
+                        .location(particleLoc)
+                        .color(org.bukkit.Color.WHITE)
+                        .count(1)
+                        .spawn();
+                Particle.DUST.builder()
+                        .location(particleLoc.clone().add(0, 0.3, 0))
+                        .color(org.bukkit.Color.AQUA)
+                        .count(1)
+                        .spawn();
+            }
 
-                    Particle.DUST.builder()
-                            .location(particleLoc)
-                            .color(org.bukkit.Color.WHITE)
-                            .count(1)
-                            .spawn();
-                    Particle.DUST.builder()
-                            .location(particleLoc.clone().add(0, 0.3, 0))
-                            .color(org.bukkit.Color.AQUA)
-                            .count(1)
-                            .spawn();
-                }
+            for (int i = 0; i < 5; i++) {
+                Vector perp = getPerpendicular(direction);
+                double swirlOffset = Math.random() * arcWidth * 1.5 - arcWidth * 0.75;
+                double heightOffset = Math.random() * 1.5;
+                Location swirlLoc = current.clone()
+                        .add(perp.clone().multiply(swirlOffset))
+                        .add(0, heightOffset, 0);
+                current.getWorld().spawnParticle(Particle.CLOUD, swirlLoc, 1, 0, 0, 0, 0.02);
+            }
 
-                for (int i = 0; i < 5; i++) {
-                    Vector perp = getPerpendicular(direction);
-                    double swirlOffset = Math.random() * arcWidth * 1.5 - arcWidth * 0.75;
-                    double heightOffset = Math.random() * 1.5;
-                    Location swirlLoc = current.clone()
-                            .add(perp.clone().multiply(swirlOffset))
-                            .add(0, heightOffset, 0);
-                    current.getWorld().spawnParticle(Particle.CLOUD, swirlLoc, 1, 0, 0, 0, 0.02);
-                }
+            for (Entity entity : current.getWorld().getNearbyEntities(current, arcWidth, 3, arcWidth)) {
+                if (entity instanceof LivingEntity && entity != player && !hitEntities.contains(entity)) {
+                    Location entityLoc = entity.getLocation();
+                    Vector toEntity = entityLoc.toVector().subtract(current.toVector());
 
-                for (Entity entity : current.getWorld().getNearbyEntities(current, arcWidth, 3, arcWidth)) {
-                    if (entity instanceof LivingEntity && entity != player && !hitEntities.contains(entity)) {
-                        Location entityLoc = entity.getLocation();
-                        Vector toEntity = entityLoc.toVector().subtract(current.toVector());
+                    double distAlong = toEntity.dot(direction);
+                    Vector perpDist = toEntity.clone().subtract(direction.clone().multiply(distAlong));
 
-                        double distAlong = toEntity.dot(direction);
-                        Vector perpDist = toEntity.clone().subtract(direction.clone().multiply(distAlong));
+                    if (distAlong >= -1 && distAlong <= 1 && perpDist.length() <= arcWidth + 0.5) {
+                        hitEntities.add(entity);
+                        dealAbilityDamage(player, (LivingEntity) entity, damage);
 
-                        if (distAlong >= -1 && distAlong <= 1 && perpDist.length() <= arcWidth + 0.5) {
-                            hitEntities.add(entity);
-                            dealAbilityDamage(player, (LivingEntity) entity, damage);
+                        entity.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
+                                entity.getLocation().add(0, 1, 0), 1, 0, 0, 0, 0);
+                        entity.getWorld().spawnParticle(Particle.CRIT,
+                                entity.getLocation().add(0, 1.5, 0), 10, 0.3, 0.5, 0.3, 0.1);
+                        entity.getWorld().playSound(entity.getLocation(),
+                                Sound.ENTITY_PLAYER_ATTACK_SWEEP, 0.5f, 1.5f);
 
-                            entity.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
-                                    entity.getLocation().add(0, 1, 0), 1, 0, 0, 0, 0);
-                            entity.getWorld().spawnParticle(Particle.CRIT,
-                                    entity.getLocation().add(0, 1.5, 0), 10, 0.3, 0.5, 0.3, 0.1);
-                            entity.getWorld().playSound(entity.getLocation(),
-                                    Sound.ENTITY_PLAYER_ATTACK_SWEEP, 0.5f, 1.5f);
-
-                            Vector knockback = direction.clone().multiply(0.5);
-                            entity.setVelocity(entity.getVelocity().add(knockback));
-                        }
+                        Vector knockback = direction.clone().multiply(0.5);
+                        entity.setVelocity(entity.getVelocity().add(knockback));
                     }
                 }
-
-                traveled += 0.5;
             }
-        }.runTaskTimer(getPlugin(), 0L, 1L);
+
+            traveled[0] += 0.5;
+        }, 0L, 1L);
 
         player.sendMessage(ColorUtils.colorize("&b🌬 Air Slash!"));
 

@@ -13,6 +13,7 @@ import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -72,7 +73,7 @@ public class DashAbility extends ItemAbility {
         player.setVelocity(direction.multiply(2.5));
         player.getWorld().playSound(start, Sound.ENTITY_PLAYER_ATTACK_SWEEP, 1.0f, 1.2f);
 
-        getPlugin().getServer().getScheduler().runTaskLater(getPlugin(), () -> {
+        FoliaScheduler.runEntityLater(player, getPlugin(), () -> {
             Location playerLoc = player.getLocation();
             Vector dir = start.getDirection().normalize();
 

@@ -10,13 +10,13 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -130,24 +130,18 @@ public class StoneSpikesAbility extends ItemAbility {
                         aboveBlock.setType(Material.COBBLESTONE_WALL);
                         final Block finalAboveBlock = aboveBlock;
                         final Material finalAboveOriginal = aboveOriginal;
-                        new BukkitRunnable() {
-                            @Override
-                            public void run() {
-                                if (finalAboveBlock.getType() == Material.COBBLESTONE_WALL) {
-                                    finalAboveBlock.setType(finalAboveOriginal);
-                                }
+                        FoliaScheduler.runRegionLater(finalAboveBlock.getLocation(), getPlugin(), () -> {
+                            if (finalAboveBlock.getType() == Material.COBBLESTONE_WALL) {
+                                finalAboveBlock.setType(finalAboveOriginal);
                             }
-                        }.runTaskLater(getPlugin(), 25L);
+                        }, 25L);
                     }
 
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            if (finalGroundBlock.getType() == Material.STONE) {
-                                finalGroundBlock.setType(finalOriginal);
-                            }
+                    FoliaScheduler.runRegionLater(finalGroundBlock.getLocation(), getPlugin(), () -> {
+                        if (finalGroundBlock.getType() == Material.STONE) {
+                            finalGroundBlock.setType(finalOriginal);
                         }
-                    }.runTaskLater(getPlugin(), 25L);
+                    }, 25L);
 
                     Location particleLoc = groundLoc.clone().add(0, 0.5, 0);
                     final Location finalParticleLoc = particleLoc.clone();
@@ -162,31 +156,28 @@ public class StoneSpikesAbility extends ItemAbility {
                     groundLoc.getWorld().spawnParticle(Particle.CLOUD,
                             particleLoc, 8, 0.3, 0.2, 0.3, 0.05);
 
-                    new BukkitRunnable() {
-                        int ticks = 0;
+                    int[] ticks = new int[]{0};
 
-                        @Override
-                        public void run() {
-                            if (ticks >= 15) {
-                                this.cancel();
-                                return;
-                            }
-                            finalParticleLoc.getWorld().spawnParticle(Particle.DUST,
-                                    finalParticleLoc.clone().add(
-                                            Math.random() * 0.6 - 0.3,
-                                            Math.random() * 0.4,
-                                            Math.random() * 0.6 - 0.3),
-                                    1, 0, 0, 0,
-                                    new Particle.DustOptions(org.bukkit.Color.GRAY, 1.5f));
-                            finalParticleLoc.getWorld().spawnParticle(Particle.BLOCK,
-                                    finalParticleLoc.clone().add(
-                                            Math.random() * 0.4 - 0.2,
-                                            Math.random() * 0.3,
-                                            Math.random() * 0.4 - 0.2),
-                                    1, 0, 0, 0, Material.GRAVEL.createBlockData());
-                            ticks++;
+                    FoliaScheduler.runRegionTimer(finalParticleLoc, getPlugin(), task -> {
+                        if (ticks[0] >= 15) {
+                            task.cancel();
+                            return;
                         }
-                    }.runTaskTimer(getPlugin(), 0L, 1L);
+                        finalParticleLoc.getWorld().spawnParticle(Particle.DUST,
+                                finalParticleLoc.clone().add(
+                                        Math.random() * 0.6 - 0.3,
+                                        Math.random() * 0.4,
+                                        Math.random() * 0.6 - 0.3),
+                                1, 0, 0, 0,
+                                new Particle.DustOptions(org.bukkit.Color.GRAY, 1.5f));
+                        finalParticleLoc.getWorld().spawnParticle(Particle.BLOCK,
+                                finalParticleLoc.clone().add(
+                                        Math.random() * 0.4 - 0.2,
+                                        Math.random() * 0.3,
+                                        Math.random() * 0.4 - 0.2),
+                                1, 0, 0, 0, Material.COBBLESTONE.createBlockData());
+                        ticks[0]++;
+                    }, 0L, 1L);
 
                     for (Entity entity : groundLoc.getWorld().getNearbyEntities(groundLoc, 1.5, 2.5, 1.5)) {
                         if (entity instanceof LivingEntity && entity != player && !hitEntities.contains(entity)) {

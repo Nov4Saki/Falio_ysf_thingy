@@ -10,14 +10,13 @@ import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -104,47 +103,43 @@ public class BloodBoltsAbility extends ItemAbility {
         burstSessions.put(uuid, session);
 
         NamespacedKey customItemKey = new NamespacedKey(getPlugin(), "custom_item_id");
+        int[] shot = new int[]{0};
 
-        BukkitTask task = new BukkitRunnable() {
-            int shot = 0;
-
-            @Override
-            public void run() {
-                boolean holding = false;
-                if (player.getInventory().getItemInMainHand() != null &&
-                        player.getInventory().getItemInMainHand().hasItemMeta() &&
-                        player.getInventory().getItemInMainHand().getItemMeta().getPersistentDataContainer()
-                                .has(customItemKey, PersistentDataType.STRING)) {
-                    holding = true;
-                }
-
-                if (!holding || !player.isOnline()) {
-                    burstSessions.remove(uuid);
-                    player.sendMessage(ColorUtils.colorize("&7Burst cancelled."));
-                    this.cancel();
-                    return;
-                }
-
-                if (shot >= totalProjectiles) {
-                    burstSessions.remove(uuid);
-                    this.cancel();
-                    return;
-                }
-
-                Location start = player.getEyeLocation();
-                Vector direction = start.getDirection().normalize();
-                direction.add(new Vector(
-                        (Math.random() - 0.5) * 0.15,
-                        (Math.random() - 0.5) * 0.1,
-                        (Math.random() - 0.5) * 0.15));
-                direction.normalize();
-
-                spawnBolt(start.clone(), direction, range, damage, player);
-                player.getWorld().playSound(player.getLocation(), Sound.ENTITY_WITCH_THROW, 0.3f, 1.0f + (shot * 0.1f));
-
-                shot++;
+        FoliaScheduler.TaskHandle task = FoliaScheduler.runEntityTimer(player, getPlugin(), taskHandle -> {
+            boolean holding = false;
+            if (player.getInventory().getItemInMainHand() != null &&
+                    player.getInventory().getItemInMainHand().hasItemMeta() &&
+                    player.getInventory().getItemInMainHand().getItemMeta().getPersistentDataContainer()
+                            .has(customItemKey, PersistentDataType.STRING)) {
+                holding = true;
             }
-        }.runTaskTimer(getPlugin(), 0L, burstDelay);
+
+            if (!holding || !player.isOnline()) {
+                burstSessions.remove(uuid);
+                player.sendMessage(ColorUtils.colorize("&7Burst cancelled."));
+                taskHandle.cancel();
+                return;
+            }
+
+            if (shot[0] >= totalProjectiles) {
+                burstSessions.remove(uuid);
+                taskHandle.cancel();
+                return;
+            }
+
+            Location start = player.getEyeLocation();
+            Vector direction = start.getDirection().normalize();
+            direction.add(new Vector(
+                    (Math.random() - 0.5) * 0.15,
+                    (Math.random() - 0.5) * 0.1,
+                    (Math.random() - 0.5) * 0.15));
+            direction.normalize();
+
+            spawnBolt(start.clone(), direction, range, damage, player);
+            player.getWorld().playSound(player.getLocation(), Sound.ENTITY_WITCH_THROW, 0.3f, 1.0f + (shot[0] * 0.1f));
+
+            shot[0]++;
+        }, 0L, burstDelay);
 
         session.task = task;
 
@@ -157,45 +152,42 @@ public class BloodBoltsAbility extends ItemAbility {
     }
 
     private void spawnBolt(Location start, Vector direction, int range, double damage, Player player) {
-        new BukkitRunnable() {
-            Location current = start.clone();
-            double traveled = 0;
+        Location current = start.clone();
+        double[] traveled = new double[]{0.0};
 
-            @Override
-            public void run() {
-                if (traveled >= range) {
-                    this.cancel();
-                    return;
-                }
-
-                current.add(direction.clone().multiply(1.5));
-                traveled += 1.5;
-
-                current.getWorld().spawnParticle(Particle.DUST,
-                        current, 1, 0, 0, 0,
-                        new Particle.DustOptions(org.bukkit.Color.fromRGB(220, 30, 30), 1f));
-
-                for (Entity entity : current.getWorld().getNearbyEntities(current, 0.6, 0.6, 0.6)) {
-                    if (!(entity instanceof LivingEntity) || entity == player) continue;
-                    LivingEntity target = (LivingEntity) entity;
-                    dealAbilityDamage(player, target, damage);
-
-                    for (int i = 0; i < 10; i++) {
-                        target.getWorld().spawnParticle(Particle.DUST,
-                                target.getLocation().add(0, 1.5, 0).add(Math.random() * 0.8 - 0.4, Math.random() * 0.8, Math.random() * 0.8 - 0.4),
-                                1, 0, 0, 0,
-                                new Particle.DustOptions(org.bukkit.Color.fromRGB(200, 0, 0), 1.5f));
-                    }
-                    target.getWorld().playSound(target.getLocation(), Sound.ENTITY_PLAYER_HURT_SWEET_BERRY_BUSH, 0.4f, 1.0f);
-                    this.cancel();
-                    return;
-                }
-
-                if (current.getBlock().getType().isSolid()) {
-                    this.cancel();
-                }
+        FoliaScheduler.runRegionTimer(start, getPlugin(), task -> {
+            if (traveled[0] >= range) {
+                task.cancel();
+                return;
             }
-        }.runTaskTimer(getPlugin(), 0L, 1L);
+
+            current.add(direction.clone().multiply(1.5));
+            traveled[0] += 1.5;
+
+            current.getWorld().spawnParticle(Particle.DUST,
+                    current, 1, 0, 0, 0,
+                    new Particle.DustOptions(org.bukkit.Color.fromRGB(220, 30, 30), 1f));
+
+            for (Entity entity : current.getWorld().getNearbyEntities(current, 0.6, 0.6, 0.6)) {
+                if (!(entity instanceof LivingEntity) || entity == player) continue;
+                LivingEntity target = (LivingEntity) entity;
+                dealAbilityDamage(player, target, damage);
+
+                for (int i = 0; i < 10; i++) {
+                    target.getWorld().spawnParticle(Particle.DUST,
+                            target.getLocation().add(0, 1.5, 0).add(Math.random() * 0.8 - 0.4, Math.random() * 0.8, Math.random() * 0.8 - 0.4),
+                            1, 0, 0, 0,
+                            new Particle.DustOptions(org.bukkit.Color.fromRGB(200, 0, 0), 1.5f));
+                }
+                target.getWorld().playSound(target.getLocation(), Sound.ENTITY_PLAYER_HURT_SWEET_BERRY_BUSH, 0.4f, 1.0f);
+                task.cancel();
+                return;
+            }
+
+            if (current.getBlock().getType().isSolid()) {
+                task.cancel();
+            }
+        }, 0L, 1L);
     }
 
     public void cleanupPlayer(UUID uuid) {
@@ -206,7 +198,7 @@ public class BloodBoltsAbility extends ItemAbility {
     }
 
     private static class BurstSession {
-        BukkitTask task;
+        FoliaScheduler.TaskHandle task;
     }
 
     private String formatDamage(double damage) {

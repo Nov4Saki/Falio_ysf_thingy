@@ -18,14 +18,13 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
-import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -139,116 +138,113 @@ public class ExplosiveChargeAbility extends ItemAbility implements Listener {
 
         NamespacedKey customItemKey = new NamespacedKey(getPlugin(), "custom_item_id");
 
-        BukkitTask task = new BukkitRunnable() {
-            int tick = 0;
-            int offTick = 0;
+        int[] tick = new int[]{0};
+        int[] offTick = new int[]{0};
 
-            @Override
-            public void run() {
-                if (!player.isOnline()) {
-                    cancelCharge(player, bossBar);
-                    this.cancel();
-                    return;
-                }
-
-                boolean holdingItem = false;
-                if (player.getInventory().getItemInMainHand() != null &&
-                        player.getInventory().getItemInMainHand().hasItemMeta() &&
-                        player.getInventory().getItemInMainHand().getItemMeta().getPersistentDataContainer()
-                                .has(customItemKey, PersistentDataType.STRING)) {
-                    holdingItem = true;
-                }
-
-                if (!holdingItem) {
-                    offTick++;
-                    if (offTick >= 30) {
-                        cancelCharge(player, bossBar);
-                        player.sendMessage(ColorUtils.colorize("&cCharge cancelled - you let go!"));
-                        this.cancel();
-                        return;
-                    }
-                    if (offTick == 10) {
-                        player.sendMessage(ColorUtils.colorize("&eRe-equip the item to keep charging!"));
-                    }
-                    return;
-                } else {
-                    offTick = 0;
-                }
-
-                if (tick >= totalTicks) {
-                    bossBar.removeAll();
-                    chargeSessions.remove(uuid);
-                    chargePositions.remove(uuid);
-                    explode(player, maxDamage, explosionRadius, knockbackPower, blindnessDuration, selfDamage);
-                    resetPlayer(player);
-                    this.cancel();
-                    return;
-                }
-
-                double progress = (double) tick / totalTicks;
-                int percent = (int) (progress * 100);
-
-                bossBar.setProgress(Math.min(1.0, progress));
-                if (progress < 0.5) {
-                    bossBar.setTitle(ColorUtils.colorize("&7💣 Charging... &f" + percent + "%"));
-                    bossBar.setColor(BarColor.YELLOW);
-                } else if (progress < 0.85) {
-                    bossBar.setTitle(ColorUtils.colorize("&6💣 Building... &f" + percent + "%"));
-                    bossBar.setColor(BarColor.RED);
-                } else {
-                    bossBar.setTitle(ColorUtils.colorize("&c💥 ABOUT TO EXPLODE! &f" + percent + "%"));
-                    bossBar.setColor(BarColor.RED);
-                }
-
-                Location loc = player.getLocation().add(0, 1, 0);
-
-                org.bukkit.Color color;
-                if (progress < 0.3) {
-                    double p = progress / 0.3;
-                    color = org.bukkit.Color.fromRGB((int)(40 + p * 215), (int)(40 + p * 125), (int)(40 + p * 0));
-                } else if (progress < 0.6) {
-                    double p = (progress - 0.3) / 0.3;
-                    color = org.bukkit.Color.fromRGB(255, (int)(165 + p * 90), (int)(p * 255));
-                } else {
-                    double p = (progress - 0.6) / 0.4;
-                    color = org.bukkit.Color.fromRGB(255, (int)(255 - p * 155), (int)(255 - p * 155));
-                }
-
-                // OPTIMIZED PARTICLES: 3 orbiting + 2 sparks
-                double orbitRadius = 1.0 + progress * 1.2;
-                double orbitSpeed = 0.3 + progress * 3.0;
-
-                for (int i = 0; i < 3; i++) {
-                    double angle = (tick * orbitSpeed * 0.3 + i * Math.PI * 2 / 3);
-                    double x = Math.cos(angle) * orbitRadius;
-                    double z = Math.sin(angle) * orbitRadius;
-                    double y = Math.sin(tick * 0.3 + i) * 0.5;
-
-                    loc.getWorld().spawnParticle(Particle.DUST,
-                            loc.clone().add(x, y, z),
-                            1, 0, 0, 0,
-                            new Particle.DustOptions(color, 2f + (float)progress));
-                }
-
-                for (int i = 0; i < 2; i++) {
-                    loc.getWorld().spawnParticle(Particle.ELECTRIC_SPARK,
-                            loc.clone().add(
-                                    (Math.random() - 0.5) * 1.2,
-                                    Math.random() * 1.5,
-                                    (Math.random() - 0.5) * 1.2),
-                            1, 0, 0, 0, 0);
-                }
-
-                if (tick % 20 == 0 && progress < 0.5) {
-                    player.getWorld().playSound(loc, Sound.BLOCK_NOTE_BLOCK_BASS, 0.4f, 0.5f + (float)progress);
-                }
-                if (progress > 0.7 && tick % 8 == 0) {
-                    player.getWorld().playSound(loc, Sound.BLOCK_NOTE_BLOCK_BASEDRUM, 0.5f, 0.3f);
-                }
-
-                tick++;
+        FoliaScheduler.TaskHandle task = FoliaScheduler.runEntityTimer(player, getPlugin(), taskHandle -> {
+            if (!player.isOnline()) {
+                cancelCharge(player, bossBar);
+                taskHandle.cancel();
+                return;
             }
-        }.runTaskTimer(getPlugin(), 0L, 1L);
+
+            boolean holdingItem = false;
+            if (player.getInventory().getItemInMainHand() != null &&
+                    player.getInventory().getItemInMainHand().hasItemMeta() &&
+                    player.getInventory().getItemInMainHand().getItemMeta().getPersistentDataContainer()
+                            .has(customItemKey, PersistentDataType.STRING)) {
+                holdingItem = true;
+            }
+
+            if (!holdingItem) {
+                offTick[0]++;
+                if (offTick[0] >= 30) {
+                    cancelCharge(player, bossBar);
+                    player.sendMessage(ColorUtils.colorize("&cCharge cancelled - you let go!"));
+                    taskHandle.cancel();
+                    return;
+                }
+                if (offTick[0] == 10) {
+                    player.sendMessage(ColorUtils.colorize("&eRe-equip the item to keep charging!"));
+                }
+                return;
+            } else {
+                offTick[0] = 0;
+            }
+
+            if (tick[0] >= totalTicks) {
+                bossBar.removeAll();
+                chargeSessions.remove(uuid);
+                chargePositions.remove(uuid);
+                explode(player, maxDamage, explosionRadius, knockbackPower, blindnessDuration, selfDamage);
+                resetPlayer(player);
+                taskHandle.cancel();
+                return;
+            }
+
+            double progress = (double) tick[0] / totalTicks;
+            int percent = (int) (progress * 100);
+
+            bossBar.setProgress(Math.min(1.0, progress));
+            if (progress < 0.5) {
+                bossBar.setTitle(ColorUtils.colorize("&7💣 Charging... &f" + percent + "%"));
+                bossBar.setColor(BarColor.YELLOW);
+            } else if (progress < 0.85) {
+                bossBar.setTitle(ColorUtils.colorize("&6💣 Building... &f" + percent + "%"));
+                bossBar.setColor(BarColor.RED);
+            } else {
+                bossBar.setTitle(ColorUtils.colorize("&c💥 ABOUT TO EXPLODE! &f" + percent + "%"));
+                bossBar.setColor(BarColor.RED);
+            }
+
+            Location loc = player.getLocation().add(0, 1, 0);
+
+            org.bukkit.Color color;
+            if (progress < 0.3) {
+                double p = progress / 0.3;
+                color = org.bukkit.Color.fromRGB((int)(40 + p * 215), (int)(40 + p * 125), (int)(40 + p * 0));
+            } else if (progress < 0.6) {
+                double p = (progress - 0.3) / 0.3;
+                color = org.bukkit.Color.fromRGB(255, (int)(165 + p * 90), (int)(p * 255));
+            } else {
+                double p = (progress - 0.6) / 0.4;
+                color = org.bukkit.Color.fromRGB(255, (int)(255 - p * 155), (int)(255 - p * 155));
+            }
+
+            // OPTIMIZED PARTICLES: 3 orbiting + 2 sparks
+            double orbitRadius = 1.0 + progress * 1.2;
+            double orbitSpeed = 0.3 + progress * 3.0;
+
+            for (int i = 0; i < 3; i++) {
+                double angle = (tick[0] * orbitSpeed * 0.3 + i * Math.PI * 2 / 3);
+                double x = Math.cos(angle) * orbitRadius;
+                double z = Math.sin(angle) * orbitRadius;
+                double y = Math.sin(tick[0] * 0.3 + i) * 0.5;
+
+                loc.getWorld().spawnParticle(Particle.DUST,
+                        loc.clone().add(x, y, z),
+                        1, 0, 0, 0,
+                        new Particle.DustOptions(color, 2f + (float)progress));
+            }
+
+            for (int i = 0; i < 2; i++) {
+                loc.getWorld().spawnParticle(Particle.ELECTRIC_SPARK,
+                        loc.clone().add(
+                                (Math.random() - 0.5) * 1.2,
+                                Math.random() * 1.5,
+                                (Math.random() - 0.5) * 1.2),
+                        1, 0, 0, 0, 0);
+            }
+
+            if (tick[0] % 20 == 0 && progress < 0.5) {
+                player.getWorld().playSound(loc, Sound.BLOCK_NOTE_BLOCK_BASS, 0.4f, 0.5f + (float)progress);
+            }
+            if (progress > 0.7 && tick[0] % 8 == 0) {
+                player.getWorld().playSound(loc, Sound.BLOCK_NOTE_BLOCK_BASEDRUM, 0.5f, 0.3f);
+            }
+
+            tick[0]++;
+        }, 0L, 1L);
 
         session.task = task;
         session.bossBar = bossBar;
@@ -344,19 +340,16 @@ public class ExplosiveChargeAbility extends ItemAbility implements Listener {
         }
 
         // OPTIMIZED: 5 smoke every 3 ticks for 30 ticks (was 10 every 2 ticks for 40)
-        new BukkitRunnable() {
-            int t = 0;
-            @Override
-            public void run() {
-                if (t >= 30) { this.cancel(); return; }
-                for (int i = 0; i < 5; i++) {
-                    center.getWorld().spawnParticle(Particle.CLOUD,
-                            center.clone().add(Math.random() * radius * 0.5 - radius * 0.25, Math.random() * 2, Math.random() * radius * 0.5 - radius * 0.25),
-                            1, 0, 0, 0, 0.03);
-                }
-                t++;
+        int[] t = new int[]{0};
+        FoliaScheduler.runRegionTimer(center, getPlugin(), task -> {
+            if (t[0] >= 30) { task.cancel(); return; }
+            for (int i = 0; i < 5; i++) {
+                center.getWorld().spawnParticle(Particle.CLOUD,
+                        center.clone().add(Math.random() * radius * 0.5 - radius * 0.25, Math.random() * 2, Math.random() * radius * 0.5 - radius * 0.25),
+                        1, 0, 0, 0, 0.03);
             }
-        }.runTaskTimer(getPlugin(), 0L, 3L);
+            t[0]++;
+        }, 0L, 3L);
 
         player.sendMessage(ColorUtils.colorize("&c💥 BOOM!"));
     }
@@ -376,7 +369,7 @@ public class ExplosiveChargeAbility extends ItemAbility implements Listener {
     }
 
     private static class ChargeSession {
-        BukkitTask task;
+        FoliaScheduler.TaskHandle task;
         BossBar bossBar;
         Location chargeLocation;
     }

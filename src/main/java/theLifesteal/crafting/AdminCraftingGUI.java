@@ -13,6 +13,7 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import net.kyori.adventure.text.Component;
 import theLifesteal.ColorUtils;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -102,13 +103,13 @@ public class AdminCraftingGUI {
     public void handleAdminMenuClick(Player player, int slot, ClickType clickType, ItemStack clicked) {
         if (slot == 45) {
             player.closeInventory();
-            Bukkit.getScheduler().runTaskLater(plugin, () -> player.performCommand("craft"), 2L);
+            FoliaScheduler.runEntityLater(player, plugin, () -> player.performCommand("craft"), 2L);
             return;
         }
         if (slot == 49) {
             String id = "recipe_" + System.currentTimeMillis();
             player.closeInventory();
-            Bukkit.getScheduler().runTaskLater(plugin, () -> openRecipeEditor(player, id, null), 2L);
+            FoliaScheduler.runEntityLater(player, plugin, () -> openRecipeEditor(player, id, null), 2L);
             return;
         }
         if (clicked != null && clicked.hasItemMeta() && clicked.getType() != Material.BLACK_STAINED_GLASS_PANE) {
@@ -131,7 +132,7 @@ public class AdminCraftingGUI {
                 } else {
                     // Edit
                     player.closeInventory();
-                    Bukkit.getScheduler().runTaskLater(plugin, () -> openRecipeEditor(player, recipeId, null), 2L);
+                    FoliaScheduler.runEntityLater(player, plugin, () -> openRecipeEditor(player, recipeId, null), 2L);
                     return;
                 }
             }
@@ -280,7 +281,7 @@ public class AdminCraftingGUI {
             editSessions.remove(player.getUniqueId());
             openEditors.remove(player.getUniqueId());
             player.closeInventory();
-            Bukkit.getScheduler().runTaskLater(plugin, () -> openAdminMenu(player), 2L);
+            FoliaScheduler.runEntityLater(player, plugin, () -> openAdminMenu(player), 2L);
             return;
         }
     }
@@ -470,7 +471,7 @@ public class AdminCraftingGUI {
                 player.closeInventory();
                 subEditorContexts.remove(player.getUniqueId());
                 // Reopen main editor
-                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                FoliaScheduler.runEntityLater(player, plugin, () -> {
                     Inventory inv = openEditors.get(player.getUniqueId());
                     if (inv != null) {
                         refreshEditorInventory(player, session, inv);
@@ -493,7 +494,7 @@ public class AdminCraftingGUI {
             if (slot == 25) {
                 player.closeInventory();
                 subEditorContexts.remove(player.getUniqueId());
-                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                FoliaScheduler.runEntityLater(player, plugin, () -> {
                     Inventory inv = openEditors.get(player.getUniqueId());
                     if (inv != null) {
                         refreshEditorInventory(player, session, inv);
@@ -519,7 +520,7 @@ public class AdminCraftingGUI {
             if (slot == 25) {
                 player.closeInventory();
                 subEditorContexts.remove(player.getUniqueId());
-                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                FoliaScheduler.runEntityLater(player, plugin, () -> {
                     Inventory inv = openEditors.get(player.getUniqueId());
                     if (inv != null) {
                         refreshEditorInventory(player, session, inv);

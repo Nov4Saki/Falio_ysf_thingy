@@ -8,6 +8,7 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import theLifesteal.abilities.ItemAbilityGUI;
+import theLifesteal.util.FoliaScheduler;
 
 public class CustomItemListener implements Listener {
     private final JavaPlugin plugin;
@@ -40,13 +41,9 @@ public class CustomItemListener implements Listener {
 
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
-        if (!(event.getPlayer() instanceof Player player)) return;
+        if (!(event.getPlayer() instanceof Player)) return;
+        Player player = (Player) event.getPlayer();
         String title = event.getView().getTitle();
-
-        if (abilityGUI != null && abilityGUI.isAbilityGUI(title)) {
-            abilityGUI.saveOnClose(player);
-            return;
-        }
 
         if (title.contains("Edit Item") || title.contains("Attributes") ||
                 title.contains("Name & Lore") || title.contains("Flags")) {
@@ -60,13 +57,13 @@ public class CustomItemListener implements Listener {
 
         if (abilityGUI != null && abilityGUI.isAwaitingInput(p.getUniqueId())) {
             event.setCancelled(true);
-            plugin.getServer().getScheduler().runTask(plugin, () -> abilityGUI.handleChatInput(p, event.getMessage()));
+            FoliaScheduler.runEntity(p, plugin, () -> abilityGUI.handleChatInput(p, event.getMessage()));
             return;
         }
 
         if (gui.isAwaitingInput(p.getUniqueId())) {
             event.setCancelled(true);
-            plugin.getServer().getScheduler().runTask(plugin, () -> gui.handleChatInput(p, event.getMessage()));
+            FoliaScheduler.runEntity(p, plugin, () -> gui.handleChatInput(p, event.getMessage()));
         }
     }
 }

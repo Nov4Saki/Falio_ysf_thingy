@@ -9,7 +9,6 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 import theLifesteal.ColorUtils;
@@ -17,6 +16,7 @@ import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -112,61 +112,58 @@ public class CelestialHomingShotAbility extends ItemAbility {
         final double finalHomingRadius = homingRadius;
         final double finalHomingStrength = homingStrength;
 
-        new BukkitRunnable() {
-            private Location currentLoc = startLoc.clone();
-            private Vector currentDir = initialDir.clone();
-            private int ticks = 0;
+        Location[] currentLoc = new Location[]{startLoc.clone()};
+        Vector[] currentDir = new Vector[]{initialDir.clone()};
+        int[] ticks = new int[]{0};
 
-            @Override
-            public void run() {
-                ticks++;
-                if (ticks > 100 || !player.isOnline()) { // 5s max lifetime
-                    spawnFizzleEffects(currentLoc);
-                    cancel();
-                    return;
-                }
-
-                // Homing logic: find closest valid victim player (excluding shooter)
-                Player targetPlayer = findClosestVictimPlayer(player, currentLoc, finalHomingRadius);
-                if (targetPlayer != null && targetPlayer.isOnline() && !targetPlayer.isDead()) {
-                    Vector toTarget = targetPlayer.getEyeLocation().subtract(0, 0.4, 0).toVector().subtract(currentLoc.toVector());
-                    if (toTarget.lengthSquared() > 0.001) {
-                        toTarget.normalize();
-                        currentDir = currentDir.multiply(1.0 - finalHomingStrength).add(toTarget.multiply(finalHomingStrength)).normalize();
-                    }
-                }
-
-                Location nextLoc = currentLoc.clone().add(currentDir.clone().multiply(finalSpeed));
-
-                // Check wall collision ("doesn't go through walls")
-                if (currentLoc.getWorld() != null) {
-                    RayTraceResult rayTrace = currentLoc.getWorld().rayTraceBlocks(currentLoc, currentDir, finalSpeed, FluidCollisionMode.NEVER, true);
-                    if (rayTrace != null && rayTrace.getHitBlock() != null) {
-                        Location hitLoc = rayTrace.getHitPosition().toLocation(currentLoc.getWorld());
-                        spawnWallHitEffects(hitLoc);
-                        cancel();
-                        return;
-                    }
-                }
-
-                // Check hit collision with victim players
-                Player victimHit = findHitVictimPlayer(player, nextLoc, 0.9);
-                if (victimHit != null) {
-                    dealAbilityDamage(player, victimHit, finalDamage);
-                    recordAbilityDamage(player, victimHit, 15000L);
-                    try {
-                        spawnImpactEffects(nextLoc);
-                    } catch (Exception ignored) {}
-                    cancel();
-                    return;
-                }
-
-                currentLoc = nextLoc;
-                try {
-                    spawnStarParticles(currentLoc, currentDir);
-                } catch (Exception ignored) {}
+        FoliaScheduler.runRegionTimer(startLoc, getPlugin(), task -> {
+            ticks[0]++;
+            if (ticks[0] > 100 || !player.isOnline()) { // 5s max lifetime
+                spawnFizzleEffects(currentLoc[0]);
+                task.cancel();
+                return;
             }
-        }.runTaskTimer(getPlugin(), 1L, 1L);
+
+            // Homing logic: find closest valid victim player (excluding shooter)
+            Player targetPlayer = findClosestVictimPlayer(player, currentLoc[0], finalHomingRadius);
+            if (targetPlayer != null && targetPlayer.isOnline() && !targetPlayer.isDead()) {
+                Vector toTarget = targetPlayer.getEyeLocation().subtract(0, 0.4, 0).toVector().subtract(currentLoc[0].toVector());
+                if (toTarget.lengthSquared() > 0.001) {
+                    toTarget.normalize();
+                    currentDir[0] = currentDir[0].multiply(1.0 - finalHomingStrength).add(toTarget.multiply(finalHomingStrength)).normalize();
+                }
+            }
+
+            Location nextLoc = currentLoc[0].clone().add(currentDir[0].clone().multiply(finalSpeed));
+
+            // Check wall collision ("doesn't go through walls")
+            if (currentLoc[0].getWorld() != null) {
+                RayTraceResult rayTrace = currentLoc[0].getWorld().rayTraceBlocks(currentLoc[0], currentDir[0], finalSpeed, FluidCollisionMode.NEVER, true);
+                if (rayTrace != null && rayTrace.getHitBlock() != null) {
+                    Location hitLoc = rayTrace.getHitPosition().toLocation(currentLoc[0].getWorld());
+                    spawnWallHitEffects(hitLoc);
+                    task.cancel();
+                    return;
+                }
+            }
+
+            // Check hit collision with victim players
+            Player victimHit = findHitVictimPlayer(player, nextLoc, 0.9);
+            if (victimHit != null) {
+                dealAbilityDamage(player, victimHit, finalDamage);
+                recordAbilityDamage(player, victimHit, 15000L);
+                try {
+                    spawnImpactEffects(nextLoc);
+                } catch (Exception ignored) {}
+                task.cancel();
+                return;
+            }
+
+            currentLoc[0] = nextLoc;
+            try {
+                spawnStarParticles(currentLoc[0], currentDir[0]);
+            } catch (Exception ignored) {}
+        }, 1L, 1L);
 
         return true;
     }

@@ -27,6 +27,7 @@ import theLifesteal.abilities.abilities.PhoenixAbility;
 import theLifesteal.customitem.AdvancedCustomItem;
 import theLifesteal.customitem.AdvancedCustomItemManager;
 import theLifesteal.customitem.CustomItemFlag;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.List;
 import java.util.Map;
@@ -76,7 +77,7 @@ public class ItemAbilityListener implements Listener {
     @EventHandler
     public void onItemHeld(PlayerItemHeldEvent event) {
         Player player = event.getPlayer();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+        FoliaScheduler.runEntityLater(player, plugin, () -> {
             ItemStack newItem = player.getInventory().getItem(event.getNewSlot());
             AdvancedCustomItem customItem = customItemManager.getItemByStack(newItem);
             if (customItem == null || !hasCriticalStrikeAbility(customItem)) {

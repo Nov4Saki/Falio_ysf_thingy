@@ -8,12 +8,12 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
-import org.bukkit.scheduler.BukkitTask;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -99,7 +99,7 @@ public class WitheringStrikeAbility extends ItemAbility {
 
         final int finalStacks = newStacks;
 
-        BukkitTask task = Bukkit.getScheduler().runTaskLater(getPlugin(), () -> {
+        FoliaScheduler.TaskHandle task = FoliaScheduler.runEntityLater(victim, getPlugin(), () -> {
             WitherData wd = activeWithers.get(victimId);
             if (wd != null && wd.stacks == finalStacks) {
                 activeWithers.remove(victimId);
@@ -147,10 +147,10 @@ public class WitheringStrikeAbility extends ItemAbility {
 
     private static class WitherData {
         int stacks;
-        BukkitTask task;
+        FoliaScheduler.TaskHandle task;
         long expireTime;
 
-        WitherData(int stacks, BukkitTask task, long expireTime) {
+        WitherData(int stacks, FoliaScheduler.TaskHandle task, long expireTime) {
             this.stacks = stacks;
             this.task = task;
             this.expireTime = expireTime;

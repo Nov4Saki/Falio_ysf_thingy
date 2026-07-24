@@ -12,7 +12,6 @@ import org.bukkit.entity.FallingBlock;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 import theLifesteal.ColorUtils;
@@ -20,6 +19,7 @@ import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -127,40 +127,37 @@ public class MeteorStrikeAbility extends ItemAbility {
 
         // Phase 1: Target warning indicator at target location
         Location impactLoc = targetLoc.clone();
-        new BukkitRunnable() {
-            int ticks = 0;
+        int[] warningTicks = new int[]{0};
 
-            @Override
-            public void run() {
-                ticks++;
-                if (ticks >= delayTicks) {
-                    spawnAndDropDiagonalMeteor(player, impactLoc, damage, radius, fireDuration);
-                    this.cancel();
-                    return;
-                }
-
-                // Target ring (Particle count = 4)
-                double angleStep = Math.PI / 2;
-                double currentRotation = ticks * 0.15;
-
-                for (int i = 0; i < 4; i++) {
-                    double angle = i * angleStep + currentRotation;
-                    double x = Math.cos(angle) * (radius * 0.7);
-                    double z = Math.sin(angle) * (radius * 0.7);
-
-                    impactLoc.getWorld().spawnParticle(Particle.DUST,
-                            impactLoc.clone().add(x, 0.1, z),
-                            1, 0, 0, 0, new Particle.DustOptions(Color.fromRGB(255, 80, 0), 1.5f));
-
-                    impactLoc.getWorld().spawnParticle(Particle.FLAME,
-                            impactLoc.clone().add(x, 0.1, z), 1, 0, 0, 0, 0.01);
-                }
-
-                if (ticks % 8 == 0) {
-                    impactLoc.getWorld().playSound(impactLoc, Sound.BLOCK_NOTE_BLOCK_PLING, 0.6f, 0.6f + (ticks * 0.02f));
-                }
+        FoliaScheduler.runRegionTimer(impactLoc, getPlugin(), task -> {
+            warningTicks[0]++;
+            if (warningTicks[0] >= delayTicks) {
+                spawnAndDropDiagonalMeteor(player, impactLoc, damage, radius, fireDuration);
+                task.cancel();
+                return;
             }
-        }.runTaskTimer(getPlugin(), 0L, 1L);
+
+            // Target ring (Particle count = 4)
+            double angleStep = Math.PI / 2;
+            double currentRotation = warningTicks[0] * 0.15;
+
+            for (int i = 0; i < 4; i++) {
+                double angle = i * angleStep + currentRotation;
+                double x = Math.cos(angle) * (radius * 0.7);
+                double z = Math.sin(angle) * (radius * 0.7);
+
+                impactLoc.getWorld().spawnParticle(Particle.DUST,
+                        impactLoc.clone().add(x, 0.1, z),
+                        1, 0, 0, 0, new Particle.DustOptions(Color.fromRGB(255, 80, 0), 1.5f));
+
+                impactLoc.getWorld().spawnParticle(Particle.FLAME,
+                        impactLoc.clone().add(x, 0.1, z), 1, 0, 0, 0, 0.01);
+            }
+
+            if (warningTicks[0] % 8 == 0) {
+                impactLoc.getWorld().playSound(impactLoc, Sound.BLOCK_NOTE_BLOCK_PLING, 0.6f, 0.6f + (warningTicks[0] * 0.02f));
+            }
+        }, 0L, 1L);
 
         if (cooldown > 0) {
             cooldownManager.setCooldown(player.getUniqueId(), getId(), itemId, scope, cooldown);
@@ -215,55 +212,52 @@ public class MeteorStrikeAbility extends ItemAbility {
         world.playSound(spawnSkyLoc, Sound.ENTITY_WITHER_SHOOT, 1.2f, 0.6f);
 
         // Native physics descent task with client interpolation
-        new BukkitRunnable() {
-            int ticks = 0;
-            Location currentCoreLoc = spawnSkyLoc.clone();
+        int[] descentTicks = new int[]{0};
+        Location currentCoreLoc = spawnSkyLoc.clone();
 
-            @Override
-            public void run() {
-                ticks++;
-                currentCoreLoc.add(diagonalVelocity);
+        FoliaScheduler.runRegionTimer(targetLoc, getPlugin(), task -> {
+            descentTicks[0]++;
+            currentCoreLoc.add(diagonalVelocity);
 
-                // Keep velocity synchronized across all 7 blocks for 60 FPS client rendering
-                for (int i = 0; i < meteorBlocks.size(); i++) {
-                    FallingBlock fb = meteorBlocks.get(i);
-                    if (fb != null && fb.isValid()) {
+            // Keep velocity synchronized across all 7 blocks for 60 FPS client rendering
+            for (int i = 0; i < meteorBlocks.size(); i++) {
+                FallingBlock fb = meteorBlocks.get(i);
+                if (fb != null && fb.isValid()) {
+                    fb.setVelocity(diagonalVelocity);
+
+                    // Safety check: if entity drifts away from cluster position, re-sync position
+                    Location expectedLoc = currentCoreLoc.clone().add(offsets[i]);
+                    if (fb.getLocation().distanceSquared(expectedLoc) > 1.5) {
+                        fb.teleportAsync(expectedLoc);
                         fb.setVelocity(diagonalVelocity);
-
-                        // Safety check: if entity drifts away from cluster position, re-sync position
-                        Location expectedLoc = currentCoreLoc.clone().add(offsets[i]);
-                        if (fb.getLocation().distanceSquared(expectedLoc) > 1.5) {
-                            fb.teleport(expectedLoc);
-                            fb.setVelocity(diagonalVelocity);
-                        }
                     }
-                }
-
-                // Particles (Intensity capped at 4)
-                world.spawnParticle(Particle.FLAME, currentCoreLoc, 4, 0.4, 0.4, 0.4, 0.02);
-                world.spawnParticle(Particle.LAVA, currentCoreLoc, 4, 0.4, 0.4, 0.4, 0.01);
-                world.spawnParticle(Particle.LARGE_SMOKE, currentCoreLoc, 4, 0.4, 0.4, 0.4, 0.01);
-                world.spawnParticle(Particle.FIREWORK, currentCoreLoc, 4, 0.3, 0.3, 0.3, 0.02);
-
-                if (ticks % 4 == 0) {
-                    world.playSound(currentCoreLoc, Sound.ITEM_FIRECHARGE_USE, 0.8f, 0.7f);
-                }
-
-                // Check impact when reaching target location
-                if (currentCoreLoc.distance(targetLoc) <= 1.2 || currentCoreLoc.getY() <= targetLoc.getY() || ticks > 70) {
-                    // CRITICAL: Immediately remove all 7 falling blocks so they completely disappear
-                    for (FallingBlock fb : meteorBlocks) {
-                        if (fb != null && fb.isValid()) {
-                            fb.remove();
-                        }
-                    }
-
-                    // Trigger single impact explosion
-                    executeImpact(player, targetLoc, damage, radius, fireDuration);
-                    this.cancel();
                 }
             }
-        }.runTaskTimer(getPlugin(), 0L, 1L);
+
+            // Particles (Intensity capped at 4)
+            world.spawnParticle(Particle.FLAME, currentCoreLoc, 4, 0.4, 0.4, 0.4, 0.02);
+            world.spawnParticle(Particle.LAVA, currentCoreLoc, 4, 0.4, 0.4, 0.4, 0.01);
+            world.spawnParticle(Particle.LARGE_SMOKE, currentCoreLoc, 4, 0.4, 0.4, 0.4, 0.01);
+            world.spawnParticle(Particle.FIREWORK, currentCoreLoc, 4, 0.3, 0.3, 0.3, 0.02);
+
+            if (descentTicks[0] % 4 == 0) {
+                world.playSound(currentCoreLoc, Sound.ITEM_FIRECHARGE_USE, 0.8f, 0.7f);
+            }
+
+            // Check impact when reaching target location
+            if (currentCoreLoc.distance(targetLoc) <= 1.2 || currentCoreLoc.getY() <= targetLoc.getY() || descentTicks[0] > 70) {
+                // CRITICAL: Immediately remove all 7 falling blocks so they completely disappear
+                for (FallingBlock fb : meteorBlocks) {
+                    if (fb != null && fb.isValid()) {
+                        fb.remove();
+                    }
+                }
+
+                // Trigger single impact explosion
+                executeImpact(player, targetLoc, damage, radius, fireDuration);
+                task.cancel();
+            }
+        }, 0L, 1L);
     }
 
     private void executeImpact(Player player, Location impactLoc, double damage, double radius, int fireDuration) {

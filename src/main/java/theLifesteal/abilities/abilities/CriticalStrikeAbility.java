@@ -9,12 +9,12 @@ import org.bukkit.boss.BossBar;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -22,7 +22,7 @@ public class CriticalStrikeAbility extends ItemAbility {
 
     private final Map<UUID, Integer> hitCounters;
     private final Map<UUID, BossBar> bossBars;
-    private final Map<UUID, BukkitTask> resetTasks;
+    private final Map<UUID, FoliaScheduler.TaskHandle> resetTasks;
     private final Map<UUID, Long> lastHitTime;
     private final Set<UUID> processingDamage;
 
@@ -98,7 +98,7 @@ public class CriticalStrikeAbility extends ItemAbility {
 
         // Schedule reset after config time of no hits
         final long hitTime = System.currentTimeMillis();
-        BukkitTask task = Bukkit.getScheduler().runTaskLater(getPlugin(), () -> {
+        FoliaScheduler.TaskHandle task = FoliaScheduler.runEntityLater(attacker, getPlugin(), () -> {
             if (!lastHitTime.containsKey(uuid)) return;
             if (lastHitTime.get(uuid) <= hitTime) {
                 hitCounters.put(uuid, 0);
@@ -115,7 +115,9 @@ public class CriticalStrikeAbility extends ItemAbility {
                 }
             }
         }, resetTime * 20L);
-        resetTasks.put(uuid, task);
+        if (task != null) {
+            resetTasks.put(uuid, task);
+        }
 
         // Update bossbar display
         updateBossBar(attacker, currentHit, hitInterval);
@@ -147,7 +149,7 @@ public class CriticalStrikeAbility extends ItemAbility {
             cancelResetTask(uuid);
 
             final UUID victimId = victim.getUniqueId();
-            Bukkit.getScheduler().runTaskLater(getPlugin(), () -> processingDamage.remove(victimId), 1L);
+            FoliaScheduler.runEntityLater(victim, getPlugin(), () -> processingDamage.remove(victimId), 1L);
         }
 
         return true;
@@ -179,7 +181,7 @@ public class CriticalStrikeAbility extends ItemAbility {
     }
 
     private void cancelResetTask(UUID uuid) {
-        BukkitTask task = resetTasks.remove(uuid);
+        FoliaScheduler.TaskHandle task = resetTasks.remove(uuid);
         if (task != null) {
             task.cancel();
         }
@@ -201,7 +203,7 @@ public class CriticalStrikeAbility extends ItemAbility {
             BossBar bar = bossBars.remove(uuid);
             if (bar != null) bar.removeAll();
         }
-        for (BukkitTask task : resetTasks.values()) {
+        for (FoliaScheduler.TaskHandle task : resetTasks.values()) {
             task.cancel();
         }
         hitCounters.clear();

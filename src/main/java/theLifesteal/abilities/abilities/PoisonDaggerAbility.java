@@ -8,14 +8,13 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 
@@ -143,45 +142,42 @@ public class PoisonDaggerAbility extends ItemAbility {
                     .add(perpendicular.clone().multiply(Math.sin(radians)))
                     .normalize();
 
-            new BukkitRunnable() {
-                Location current = start.clone();
-                double traveled = 0;
+            Location current = start.clone();
+            double[] traveled = new double[]{0.0};
 
-                @Override
-                public void run() {
-                    if (traveled >= range) {
-                        this.cancel();
+            FoliaScheduler.runRegionTimer(start, getPlugin(), task -> {
+                if (traveled[0] >= range) {
+                    task.cancel();
+                    return;
+                }
+
+                current.add(direction.clone().multiply(0.8));
+                traveled[0] += 0.8;
+
+                current.getWorld().spawnParticle(Particle.DUST,
+                        current, 1, 0.08, 0.08, 0.08,
+                        new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 180, 0), 1.2f));
+                current.getWorld().spawnParticle(Particle.DUST,
+                        current.clone().add(0, 0.1, 0),
+                        1, 0.05, 0.05, 0.05,
+                        new Particle.DustOptions(org.bukkit.Color.fromRGB(80, 255, 80), 0.8f));
+
+                for (Entity entity : current.getWorld().getNearbyEntities(current, 1, 1, 1)) {
+                    if (entity instanceof LivingEntity && entity != player) {
+                        LivingEntity target = (LivingEntity) entity;
+                        applyStackingPoison(player, target, poisonDuration, damagePerSecond, damagePerStack, maxStacks);
+                        task.cancel();
                         return;
                     }
-
-                    current.add(direction.clone().multiply(0.8));
-                    traveled += 0.8;
-
-                    current.getWorld().spawnParticle(Particle.DUST,
-                            current, 1, 0.08, 0.08, 0.08,
-                            new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 180, 0), 1.2f));
-                    current.getWorld().spawnParticle(Particle.DUST,
-                            current.clone().add(0, 0.1, 0),
-                            1, 0.05, 0.05, 0.05,
-                            new Particle.DustOptions(org.bukkit.Color.fromRGB(80, 255, 80), 0.8f));
-
-                    for (Entity entity : current.getWorld().getNearbyEntities(current, 1, 1, 1)) {
-                        if (entity instanceof LivingEntity && entity != player) {
-                            LivingEntity target = (LivingEntity) entity;
-                            applyStackingPoison(player, target, poisonDuration, damagePerSecond, damagePerStack, maxStacks);
-                            this.cancel();
-                            return;
-                        }
-                    }
-
-                    if (current.getBlock().getType().isSolid()) {
-                        current.getWorld().spawnParticle(Particle.DUST,
-                                current, 5, 0.2, 0.2, 0.2,
-                                new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 150, 0), 0.8f));
-                        this.cancel();
-                    }
                 }
-            }.runTaskTimer(getPlugin(), 0L, 1L);
+
+                if (current.getBlock().getType().isSolid()) {
+                    current.getWorld().spawnParticle(Particle.DUST,
+                            current, 5, 0.2, 0.2, 0.2,
+                            new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 150, 0), 0.8f));
+                    task.cancel();
+                }
+            }, 0L, 1L);
         }
 
         int available = countAvailableCharges(chargeData);
@@ -220,67 +216,56 @@ public class PoisonDaggerAbility extends ItemAbility {
         final double finalDps = totalDps;
         final double damagePerTick = finalDps / 2.0;
 
-        BukkitTask task = Bukkit.getScheduler().runTaskTimer(getPlugin(), new Runnable() {
-            int ticks = 0;
-            int maxTicks = duration * 20;
-            int damageTicks = 0;
+        int[] ticks = new int[]{0};
+        int maxTicks = duration * 20;
+        int[] damageTicks = new int[]{0};
 
-            @Override
-            public void run() {
-                PoisonData pd = activePoisons.get(victimId);
-                if (pd == null || pd.stacks != finalStacks) return;
+        FoliaScheduler.TaskHandle task = FoliaScheduler.runEntityTimer(victim, getPlugin(), taskHandle -> {
+            PoisonData pd = activePoisons.get(victimId);
+            if (pd == null || pd.stacks != finalStacks) return;
 
-                if (ticks >= maxTicks || victim.isDead() || !victim.isValid()) {
-                    if (pd.stacks == finalStacks) {
-                        pd.stacks = 0;
-                        if (victim.isValid() && !victim.isDead()) {
-                            victim.sendMessage(ColorUtils.colorize("&a☠ Poison has worn off"));
-                        }
-                    }
-                    return;
-                }
-
-                if (ticks % 10 == 0 && ticks > 0) {
-                    ignoreDamage.add(victimId);
-                    dealAbilityDamage(attacker, victim, damagePerTick, (duration * 1000L) + 10000L);
-                    Bukkit.getScheduler().runTaskLater(getPlugin(), () -> ignoreDamage.remove(victimId), 1L);
-                    damageTicks++;
-
-                    victim.getWorld().spawnParticle(Particle.DUST,
-                            victim.getLocation().add(0, 1.5, 0),
-                            3, 0.2, 0.4, 0.2,
-                            new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 180, 0), 1.2f));
-
-                    if (damageTicks % 4 == 0 && victim instanceof Player) {
-                        victim.sendMessage(ColorUtils.colorize("&a☠ Poison tick &7-&c" + String.format("%.1f", damagePerTick) + "❤ &7(&a" + finalStacks + " stacks&7, &c" + String.format("%.1f", finalDps) + " DPS&7)"));
+            if (ticks[0] >= maxTicks || victim.isDead() || !victim.isValid()) {
+                if (pd.stacks == finalStacks) {
+                    pd.stacks = 0;
+                    if (victim.isValid() && !victim.isDead()) {
+                        victim.sendMessage(ColorUtils.colorize("&a☠ Poison has worn off"));
                     }
                 }
-
-                if (ticks % 5 == 0) {
-                    for (int i = 0; i < 2; i++) {
-                        victim.getWorld().spawnParticle(Particle.DUST,
-                                victim.getLocation().add(
-                                        Math.random() * 0.4 - 0.2,
-                                        0.8 + Math.random() * 1.2,
-                                        Math.random() * 0.4 - 0.2),
-                                1, 0, 0, 0,
-                                new Particle.DustOptions(org.bukkit.Color.fromRGB(50, 200, 50), 0.8f));
-                    }
-                }
-
-                ticks++;
+                taskHandle.cancel();
+                return;
             }
+
+            if (ticks[0] % 10 == 0 && ticks[0] > 0) {
+                ignoreDamage.add(victimId);
+                dealAbilityDamage(attacker, victim, damagePerTick, (duration * 1000L) + 10000L);
+                FoliaScheduler.runEntityLater(victim, getPlugin(), () -> ignoreDamage.remove(victimId), 1L);
+                damageTicks[0]++;
+
+                victim.getWorld().spawnParticle(Particle.DUST,
+                        victim.getLocation().add(0, 1.5, 0),
+                        3, 0.2, 0.4, 0.2,
+                        new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 180, 0), 1.2f));
+
+                if (damageTicks[0] % 4 == 0 && victim instanceof Player) {
+                    victim.sendMessage(ColorUtils.colorize("&a☠ Poison tick &7-&c" + String.format("%.1f", damagePerTick) + "❤ &7(&a" + finalStacks + " stacks&7, &c" + String.format("%.1f", finalDps) + " DPS&7)"));
+                }
+            }
+
+            if (ticks[0] % 5 == 0) {
+                for (int i = 0; i < 2; i++) {
+                    victim.getWorld().spawnParticle(Particle.DUST,
+                            victim.getLocation().add(Math.random() * 0.8 - 0.4, Math.random() * 1.5, Math.random() * 0.8 - 0.4),
+                            1, 0, 0, 0,
+                            new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 220, 0), 0.8f));
+                }
+            }
+
+            ticks[0]++;
         }, 0L, 1L);
 
-        PoisonData poisonData = new PoisonData(newStacks, task, System.currentTimeMillis() + (duration * 1000L), totalDps);
-        activePoisons.put(victimId, poisonData);
+        long expireTime = System.currentTimeMillis() + (duration * 1000L);
+        activePoisons.put(victimId, new PoisonData(finalStacks, task, expireTime, finalDps));
 
-        for (int i = 0; i < 8; i++) {
-            victim.getWorld().spawnParticle(Particle.DUST,
-                    victim.getLocation().add(0, 1.5, 0),
-                    1, 0.3, 0.5, 0.3,
-                    new Particle.DustOptions(org.bukkit.Color.fromRGB(0, 200, 0), 1.8f));
-        }
         victim.getWorld().playSound(victim.getLocation(), Sound.ENTITY_SPIDER_HURT, 0.5f, 1.0f);
 
         attacker.sendMessage(ColorUtils.colorize("&a🗡 Poison &2" + newStacks + "x &7| &c" + String.format("%.1f", totalDps) + " DPS &7| &a" + duration + "s"));
@@ -301,11 +286,11 @@ public class PoisonDaggerAbility extends ItemAbility {
 
     private static class PoisonData {
         int stacks;
-        BukkitTask task;
+        FoliaScheduler.TaskHandle task;
         long expireTime;
         double dps;
 
-        PoisonData(int stacks, BukkitTask task, long expireTime, double dps) {
+        PoisonData(int stacks, FoliaScheduler.TaskHandle task, long expireTime, double dps) {
             this.stacks = stacks;
             this.task = task;
             this.expireTime = expireTime;

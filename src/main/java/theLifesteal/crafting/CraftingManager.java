@@ -7,6 +7,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import theLifesteal.TheLifesteal;
+import theLifesteal.util.FoliaScheduler;
 
 import java.io.File;
 import java.io.IOException;
@@ -48,7 +49,7 @@ public class CraftingManager {
      * Periodic cleanup runs on the main thread to avoid concurrency issues.
      */
     private void startCleanupTask() {
-        plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
+        FoliaScheduler.runGlobalTimer(plugin, () -> {
             int removed = 0;
             long now = System.currentTimeMillis();
 
@@ -265,10 +266,10 @@ public class CraftingManager {
     private void scheduleSave() {
         if (!saveQueued.compareAndSet(false, true)) return;
 
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
+        FoliaScheduler.runGlobal(plugin, () -> {
             Map<UUID, List<CraftingProcessData>> snapshot = createSnapshot();
 
-            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            FoliaScheduler.runAsync(plugin, () -> {
                 try {
                     saveSnapshot(snapshot);
                 } finally {
@@ -278,7 +279,7 @@ public class CraftingManager {
                         if (pendingSnapshot != null) {
                             Map<UUID, List<CraftingProcessData>> pending = pendingSnapshot;
                             pendingSnapshot = null;
-                            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+                            FoliaScheduler.runAsync(plugin, () -> {
                                 try {
                                     saveSnapshot(pending);
                                 } catch (Exception e) {

@@ -92,7 +92,7 @@ public class TeleportAbility extends ItemAbility {
 
         destination.setYaw(player.getLocation().getYaw());
         destination.setPitch(player.getLocation().getPitch());
-        player.teleport(destination);
+        player.teleportAsync(destination);
 
         spawnTeleportParticles(destination);
         player.getWorld().playSound(destination, Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.2f);

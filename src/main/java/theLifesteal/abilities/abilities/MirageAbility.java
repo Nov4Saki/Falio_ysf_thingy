@@ -20,14 +20,13 @@ import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.AbilityCooldownManager;
 import theLifesteal.abilities.ItemAbility;
 import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
+import theLifesteal.util.FoliaScheduler;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -165,36 +164,33 @@ public class MirageAbility extends ItemAbility implements Listener {
         MirageSession session = new MirageSession(clones);
 
         // Repeating task to update clone positions relative to player every tick
-        BukkitTask trackingTask = new BukkitRunnable() {
-            int ticksElapsed = 0;
-            final int maxTicks = durationSec * 20;
+        int maxTicks = durationSec * 20;
+        int[] ticksElapsed = new int[]{0};
 
-            @Override
-            public void run() {
-                ticksElapsed++;
+        FoliaScheduler.TaskHandle trackingTask = FoliaScheduler.runEntityTimer(player, getPlugin(), task -> {
+            ticksElapsed[0]++;
 
-                if (ticksElapsed >= maxTicks || !player.isOnline() || player.isDead()) {
-                    cleanupPlayer(playerUuid);
-                    this.cancel();
-                    return;
-                }
+            if (ticksElapsed[0] >= maxTicks || !player.isOnline() || player.isDead()) {
+                cleanupPlayer(playerUuid);
+                task.cancel();
+                return;
+            }
 
-                Location currentLoc = player.getLocation();
+            Location currentLoc = player.getLocation();
 
-                for (int i = 0; i < clones.size(); i++) {
-                    Skeleton clone = clones.get(i);
-                    if (clone != null && clone.isValid()) {
-                        Location targetLoc = calculateOffsetLocation(currentLoc, relativeOffsets[i]);
-                        clone.teleport(targetLoc);
+            for (int i = 0; i < clones.size(); i++) {
+                Skeleton clone = clones.get(i);
+                if (clone != null && clone.isValid()) {
+                    Location targetLoc = calculateOffsetLocation(currentLoc, relativeOffsets[i]);
+                    clone.teleportAsync(targetLoc);
 
-                        // Subtle particles following clones
-                        if (ticksElapsed % 5 == 0) {
-                            clone.getWorld().spawnParticle(Particle.WITCH, clone.getLocation().add(0, 1, 0), 2, 0.2, 0.3, 0.2, 0.01);
-                        }
+                    // Subtle particles following clones
+                    if (ticksElapsed[0] % 5 == 0) {
+                        clone.getWorld().spawnParticle(Particle.WITCH, clone.getLocation().add(0, 1, 0), 2, 0.2, 0.3, 0.2, 0.01);
                     }
                 }
             }
-        }.runTaskTimer(getPlugin(), 0L, 1L);
+        }, 0L, 1L);
 
         session.task = trackingTask;
         activeSessions.put(playerUuid, session);
@@ -270,7 +266,7 @@ public class MirageAbility extends ItemAbility implements Listener {
 
     private static class MirageSession {
         final List<Skeleton> clones;
-        BukkitTask task;
+        FoliaScheduler.TaskHandle task;
 
         MirageSession(List<Skeleton> clones) {
             this.clones = clones;
