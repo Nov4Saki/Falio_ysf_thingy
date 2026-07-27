@@ -46,7 +46,7 @@ public class ItemLoreBuilder {
         ATTRIBUTE_DISPLAYS.put(Attribute.ARMOR_TOUGHNESS, new AttributeDisplay("&b🛡 Toughness", "&b"));
         ATTRIBUTE_DISPLAYS.put(Attribute.ATTACK_DAMAGE, new AttributeDisplay("&c🗡 Attack Damage", "&c"));
         ATTRIBUTE_DISPLAYS.put(Attribute.ATTACK_KNOCKBACK, new AttributeDisplay("&c💢 Knockback", "&c"));
-        ATTRIBUTE_DISPLAYS.put(Attribute.ATTACK_SPEED, new AttributeDisplay("&e⚡ Attack Speed", "&e"));
+       // ATTRIBUTE_DISPLAYS.put(Attribute.ATTACK_SPEED, new AttributeDisplay("&e⚡ Attack Speed", "&e"));
         ATTRIBUTE_DISPLAYS.put(Attribute.BLOCK_BREAK_SPEED, new AttributeDisplay("&e⛏ Mining Speed", "&e"));
         ATTRIBUTE_DISPLAYS.put(Attribute.BLOCK_INTERACTION_RANGE, new AttributeDisplay("&6📏 Reach", "&6"));
         ATTRIBUTE_DISPLAYS.put(Attribute.ENTITY_INTERACTION_RANGE, new AttributeDisplay("&6📏 Entity Reach", "&6"));

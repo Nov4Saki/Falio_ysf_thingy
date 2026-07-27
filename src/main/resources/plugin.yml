@@ -33,6 +33,12 @@ commands:
       aliases: [ ci, customitems, citem ]
       permission: thelifesteal.admin
 
+  reloaditems:
+      description: Refresh custom items for players
+      usage: /<command> [player] [enable|disable|onjoin|onworldchange]
+      aliases: [ ri, refreshitems, itemupdate ]
+      permission: thelifesteal.admin
+
 permissions:
   thelifesteal.withdraw:
     description: Allows players to withdraw hearts

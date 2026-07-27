@@ -1,6 +1,7 @@
 package theLifesteal.customitem;
 
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemStack;
@@ -13,19 +14,19 @@ import java.util.*;
 
 public class AdvancedCustomItem {
 
-    // Categories that get instance UUIDs (non-stackable)
     public static final Set<String> NON_STACKABLE_CATEGORIES = Set.of(
             "Weapons", "Armor", "Tools"
     );
 
     private final String id;
-    private ItemStack baseItem;           // Stripped original material
-    private Material visualItemType;      // What the item LOOKS like
+    private ItemStack baseItem;
+    private Material visualItemType;
     private String displayName;
     private List<String> lore;
     private Map<Attribute, Double> attributes;
     private EnumSet<CustomItemFlag> flags;
     private int customModelData;
+    private NamespacedKey itemModel;
     private int damage;
     private Map<String, Object> futureExtensions;
     private List<PotionEffectData> potionEffects;
@@ -33,6 +34,8 @@ public class AdvancedCustomItem {
     private ItemLoreBuilder.Rarity rarity;
     private Map<ItemAbilityType, List<ItemAbilityData>> abilities;
     private Map<Enchantment, Integer> enchants;
+    private long version;
+    private boolean disabled;
 
     public AdvancedCustomItem(String id, ItemStack baseItem) {
         this.id = id;
@@ -43,6 +46,7 @@ public class AdvancedCustomItem {
         this.attributes = new HashMap<>();
         this.flags = EnumSet.noneOf(CustomItemFlag.class);
         this.customModelData = 0;
+        this.itemModel = null;
         this.damage = 0;
         this.futureExtensions = new HashMap<>();
         this.potionEffects = new ArrayList<>();
@@ -53,60 +57,38 @@ public class AdvancedCustomItem {
             this.abilities.put(type, new ArrayList<>());
         }
         this.enchants = new LinkedHashMap<>();
+        this.version = 1L;
+        this.disabled = false;
     }
 
     public String getId() { return id; }
-
     public ItemStack getBaseItem() { return baseItem.clone(); }
-
-    public void setBaseItem(ItemStack baseItem) {
-        this.baseItem = baseItem.clone();
-    }
-
+    public void setBaseItem(ItemStack baseItem) { this.baseItem = baseItem.clone(); }
     public Material getVisualItemType() { return visualItemType; }
+    public void setVisualItemType(Material visualItemType) { this.visualItemType = visualItemType; }
 
-    public void setVisualItemType(Material visualItemType) {
-        this.visualItemType = visualItemType;
-    }
-
-    /**
-     * Should this item get an instance UUID?
-     * Weapons, Armor, Tools = yes (unless NO_INSTANCE_UUID flag)
-     * Everything else = no
-     */
     public boolean shouldGetInstanceUuid() {
         if (hasFlag(CustomItemFlag.NO_INSTANCE_UUID)) return false;
         return NON_STACKABLE_CATEGORIES.contains(category);
     }
 
-    /**
-     * Strip all vanilla data from an ItemStack.
-     * Keeps the material so it still looks correct in-game.
-     */
     public static ItemStack stripVanillaStats(ItemStack item) {
         ItemStack clean = item.clone();
         org.bukkit.inventory.meta.ItemMeta meta = clean.getItemMeta();
         if (meta == null) return clean;
-
         meta.setDisplayName(null);
         meta.setLore(null);
-
         if (clean.getType().getMaxDurability() > 0) {
             ((org.bukkit.inventory.meta.Damageable) meta).setDamage(0);
         }
-
         meta.setUnbreakable(false);
-
         for (Attribute attr : Attribute.values()) {
             meta.removeAttributeModifier(attr);
         }
-
         for (Enchantment ench : meta.getEnchants().keySet()) {
             meta.removeEnchant(ench);
         }
-
         meta.removeItemFlags(org.bukkit.inventory.ItemFlag.values());
-
         clean.setItemMeta(meta);
         return clean;
     }
@@ -128,6 +110,8 @@ public class AdvancedCustomItem {
     }
     public int getCustomModelData() { return customModelData; }
     public void setCustomModelData(int customModelData) { this.customModelData = customModelData; }
+    public NamespacedKey getItemModel() { return itemModel; }
+    public void setItemModel(NamespacedKey itemModel) { this.itemModel = itemModel; }
     public int getDamage() { return damage; }
     public void setDamage(int damage) { this.damage = Math.max(0, damage); }
     public Map<String, Object> getFutureExtensions() { return new HashMap<>(futureExtensions); }
@@ -142,9 +126,7 @@ public class AdvancedCustomItem {
     public void clearPotionEffects() { this.potionEffects.clear(); }
 
     public String getCategory() { return category; }
-    public void setCategory(String category) {
-        this.category = category;
-    }
+    public void setCategory(String category) { this.category = category; }
 
     public ItemLoreBuilder.Rarity getRarity() { return rarity; }
     public void setRarity(ItemLoreBuilder.Rarity rarity) { this.rarity = rarity; }
@@ -155,6 +137,32 @@ public class AdvancedCustomItem {
     public Map<Enchantment, Integer> getEnchants() { return enchants; }
     public void setEnchants(Map<Enchantment, Integer> enchants) { this.enchants = new LinkedHashMap<>(enchants); }
 
+    public long getVersion() { return version; }
+    public void setVersion(long version) { this.version = version; }
+    public void incrementVersion() { this.version++; }
+
+    public boolean isDisabled() { return disabled; }
+    public void setDisabled(boolean disabled) { this.disabled = disabled; }
+
+    public ItemStack buildBrokenReplacement() {
+        ItemStack broken = new ItemStack(visualItemType);
+        org.bukkit.inventory.meta.ItemMeta meta = broken.getItemMeta();
+        if (meta == null) return broken;
+        String name = displayName != null ? displayName : formatMaterialName(visualItemType);
+        meta.setDisplayName(theLifesteal.ColorUtils.colorize("&8" + name));
+        List<String> brokenLore = new ArrayList<>();
+        brokenLore.add(theLifesteal.ColorUtils.colorize("&c&m-------------------"));
+        brokenLore.add(theLifesteal.ColorUtils.colorize("&4&lBROKEN ITEM"));
+        brokenLore.add(theLifesteal.ColorUtils.colorize("&7This item has been disabled"));
+        brokenLore.add(theLifesteal.ColorUtils.colorize("&7by the server administrators."));
+        brokenLore.add("");
+        brokenLore.add(theLifesteal.ColorUtils.colorize("&eContact support for an item refund."));
+        brokenLore.add(theLifesteal.ColorUtils.colorize("&c&m-------------------"));
+        meta.setLore(brokenLore);
+        broken.setItemMeta(meta);
+        return broken;
+    }
+
     public AdvancedCustomItem clone() {
         AdvancedCustomItem clone = new AdvancedCustomItem(this.id, this.baseItem);
         clone.setVisualItemType(this.visualItemType);
@@ -163,12 +171,14 @@ public class AdvancedCustomItem {
         clone.setAttributes(this.attributes);
         clone.setFlags(this.flags);
         clone.setCustomModelData(this.customModelData);
+        clone.setItemModel(this.itemModel);
         clone.setDamage(this.damage);
         clone.setFutureExtensions(this.futureExtensions);
         clone.setPotionEffects(this.potionEffects);
         clone.setCategory(this.category);
         clone.setRarity(this.rarity);
-
+        clone.setVersion(this.version);
+        clone.setDisabled(this.disabled);
         Map<ItemAbilityType, List<ItemAbilityData>> abilitiesCopy = new LinkedHashMap<>();
         for (Map.Entry<ItemAbilityType, List<ItemAbilityData>> entry : this.abilities.entrySet()) {
             List<ItemAbilityData> listCopy = new ArrayList<>();
@@ -180,10 +190,22 @@ public class AdvancedCustomItem {
             abilitiesCopy.put(entry.getKey(), listCopy);
         }
         clone.setAbilities(abilitiesCopy);
-
         clone.setEnchants(new LinkedHashMap<>(this.enchants));
-
         return clone;
+    }
+
+    private String formatMaterialName(Material mat) {
+        String name = mat.name().replace("_", " ").toLowerCase();
+        String[] words = name.split(" ");
+        StringBuilder sb = new StringBuilder();
+        for (String word : words) {
+            if (!word.isEmpty()) {
+                sb.append(Character.toUpperCase(word.charAt(0)));
+                if (word.length() > 1) sb.append(word.substring(1));
+                sb.append(" ");
+            }
+        }
+        return sb.toString().trim();
     }
 
     public static class PotionEffectData {

@@ -21,6 +21,11 @@ settings:
 
   drop-chance: 1.0   #OUTDATED DONT USE !!!!
 
+
+  item-updates:
+    enabled: true
+    on-join: true
+    on-world-change: true
   # Sound effects
   sounds:
     heart-use: true

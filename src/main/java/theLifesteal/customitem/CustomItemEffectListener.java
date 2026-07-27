@@ -36,24 +36,27 @@ public class CustomItemEffectListener implements Listener {
             for (Player player : Bukkit.getOnlinePlayers()) {
                 FoliaScheduler.runEntity(player, plugin, () -> refreshPlayerEffects(player));
             }
-        }, 20L, 20L); // Every 1 second
+        }, 20L, 20L);
     }
 
     private void refreshPlayerEffects(Player player) {
         UUID uuid = player.getUniqueId();
-        ItemStack mainHand = player.getInventory().getItemInMainHand();
-        ItemStack offHand = player.getInventory().getItemInOffHand();
 
         Map<PotionEffectType, AdvancedCustomItem.PotionEffectData> desiredEffects = new LinkedHashMap<>();
 
-        addItemEffects(mainHand, desiredEffects);
-        addItemEffects(offHand, desiredEffects);
+        // Check main hand
+        addItemEffects(player.getInventory().getItemInMainHand(), desiredEffects);
+        // Check off hand
+        addItemEffects(player.getInventory().getItemInOffHand(), desiredEffects);
+        // Check armor slots
+        for (ItemStack armorPiece : player.getInventory().getArmorContents()) {
+            addItemEffects(armorPiece, desiredEffects);
+        }
 
         Set<PotionEffectType> oldEffects = activeEffects.getOrDefault(uuid, new HashSet<>());
 
         // Apply desired effects with infinite duration (refreshed every second)
         for (AdvancedCustomItem.PotionEffectData effectData : desiredEffects.values()) {
-            // Use a very long duration so it doesn't expire between refreshes
             PotionEffect effect = new PotionEffect(
                     effectData.getType(),
                     40, // 2 seconds - refreshed every 1 second so it never expires

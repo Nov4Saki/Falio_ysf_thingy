@@ -58,12 +58,21 @@ public class ItemAbilityListener implements Listener {
         AdvancedCustomItem customItem = customItemManager.getItemByStack(item);
         if (customItem == null) return;
 
-        // CANCEL IMMEDIATELY — prevent vanilla use (snowball throw, shield, etc.)
+        Map<ItemAbilityType, List<ItemAbilityData>> abilities = customItem.getAbilities();
+
+        // Determine which slot would trigger based on sneak state
+        ItemAbilityType triggeringType = player.isSneaking() ? ItemAbilityType.SHIFT_RIGHT_CLICK : ItemAbilityType.RIGHT_CLICK;
+        List<ItemAbilityData> activeAbilities = abilities.get(triggeringType);
+
+        // Only cancel if there's actually an ability to execute
+        // Armor pieces with no right-click abilities will pass through for vanilla equip behavior
+        if (activeAbilities == null || activeAbilities.isEmpty()) {
+            return;
+        }
+
         event.setCancelled(true);
 
-        Map<ItemAbilityType, List<ItemAbilityData>> abilities = customItem.getAbilities();
         boolean success;
-
         if (player.isSneaking()) {
             success = abilityManager.executeShiftRightClick(player, customItem.getId(), abilities);
         } else {
@@ -74,6 +83,7 @@ public class ItemAbilityListener implements Listener {
             consumeItem(player);
         }
     }
+
     @EventHandler
     public void onItemHeld(PlayerItemHeldEvent event) {
         Player player = event.getPlayer();
@@ -185,10 +195,6 @@ public class ItemAbilityListener implements Listener {
         }
     }
 
-    /**
-     * Consume one item from the player's main hand.
-     * Removes instance UUID from tracking, plays break sound, deletes item.
-     */
     private void consumeItem(Player player) {
         ItemStack item = player.getInventory().getItemInMainHand();
         if (item == null) return;

@@ -5,13 +5,15 @@ import org.bukkit.inventory.ItemStack;
 import java.util.Map;
 import java.util.List;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 
 public class CraftingRecipe {
 
     private final String id;
-    private final ItemStack result;
+    private ItemStack result;
     private final Map<Material, Integer> materials;
-    private final long craftingTime; // in seconds
+    private final Map<String, Integer> customItemMaterials;
+    private final long craftingTime;
     private final String category;
     private final List<String> description;
     private final boolean isShapeless;
@@ -20,9 +22,17 @@ public class CraftingRecipe {
     public CraftingRecipe(String id, ItemStack result, Map<Material, Integer> materials,
                           long craftingTime, String category, List<String> description,
                           boolean isShapeless, int experienceReward) {
+        this(id, result, materials, new LinkedHashMap<>(), craftingTime, category, description, isShapeless, experienceReward);
+    }
+
+    public CraftingRecipe(String id, ItemStack result, Map<Material, Integer> materials,
+                          Map<String, Integer> customItemMaterials,
+                          long craftingTime, String category, List<String> description,
+                          boolean isShapeless, int experienceReward) {
         this.id = id;
         this.result = result.clone();
         this.materials = new HashMap<>(materials);
+        this.customItemMaterials = new LinkedHashMap<>(customItemMaterials);
         this.craftingTime = craftingTime;
         this.category = category;
         this.description = description;
@@ -32,22 +42,16 @@ public class CraftingRecipe {
 
     public String getId() { return id; }
     public ItemStack getResult() { return result.clone(); }
+    public void setResult(ItemStack result) { this.result = result.clone(); }
     public Map<Material, Integer> getMaterials() { return new HashMap<>(materials); }
+    public Map<String, Integer> getCustomItemMaterials() { return new LinkedHashMap<>(customItemMaterials); }
     public long getCraftingTime() { return craftingTime; }
     public String getCategory() { return category; }
     public List<String> getDescription() { return description; }
     public boolean isShapeless() { return isShapeless; }
     public int getExperienceReward() { return experienceReward; }
 
-    public boolean canCraft(Map<Material, Integer> playerMaterials) {
-        for (Map.Entry<Material, Integer> entry : materials.entrySet()) {
-            Material mat = entry.getKey();
-            int required = entry.getValue();
-            int available = playerMaterials.getOrDefault(mat, 0);
-            if (available < required) {
-                return false;
-            }
-        }
-        return true;
+    public boolean hasCustomMaterials() {
+        return !customItemMaterials.isEmpty();
     }
 }

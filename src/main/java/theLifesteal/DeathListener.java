@@ -87,8 +87,9 @@ public class DeathListener implements Listener {
         boolean pvpOnly = configManager.getConfig().getBoolean("settings.death-drop.pvp-only", true);
         if (pvpOnly && !isPvp) return;
 
-        // Check min-health: victim must have more than min-health max HP
-        double minHealth = configManager.getConfig().getDouble("settings.death-drop.min-health", 2.0);
+        // FIXED: Use the lifesteal minimum max health instead of a separate config value
+        // This ensures death drops stop at the same floor that lifesteal health loss stops at
+        double minHealth = configManager.getMinimumMaxHealth();
         double victimMaxHp = victim.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).getBaseValue();
         if (victimMaxHp <= minHealth) return;
 

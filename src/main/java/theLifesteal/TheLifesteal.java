@@ -15,6 +15,7 @@ import theLifesteal.customitem.CustomItemGUI;
 import theLifesteal.customitem.CustomItemListener;
 import theLifesteal.customitem.CustomItemRestrictionListener;
 import theLifesteal.customitem.CustomItemEffectListener;
+import theLifesteal.customitem.ItemUpdateManager;
 
 import java.util.UUID;
 import java.util.logging.Level;
@@ -42,6 +43,7 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
     private CustomItemListener customItemListener;
     private CustomItemEffectListener customItemEffectListener;
     private CustomEnchantGUI customEnchantGUI;
+    private ItemUpdateManager itemUpdateManager;
 
     // Ability System
     private ItemAbilityManager abilityManager;
@@ -52,35 +54,27 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         instance = this;
-
         saveDefaultConfig();
 
-        try {
-            saveResource("recipes.yml", false);
-        } catch (IllegalArgumentException e) {
-            getLogger().info("No default recipes.yml found, will create when needed.");
-        }
+        try { saveResource("recipes.yml", false); } catch (IllegalArgumentException e) { getLogger().info("No default recipes.yml found."); }
+        try { saveResource("custom_items.yml", false); } catch (IllegalArgumentException e) { getLogger().info("No default custom_items.yml found."); }
 
-        try {
-            saveResource("custom_items.yml", false);
-        } catch (IllegalArgumentException e) {
-            getLogger().info("No default custom_items.yml found, will create when needed.");
-        }
-
-        // Initialize managers
         this.configManager = new ConfigManager(this);
         this.heartManager = new HeartManager(this);
 
-        // Initialize ability system first
+        // Ability system
         this.abilityManager = new ItemAbilityManager(this);
         registerAbilities();
 
-        // Initialize advanced custom item system
+        // Custom item system
         this.customItemManager = new CustomItemManager(this);
         this.advancedItemManager = new AdvancedCustomItemManager(this);
         this.advancedItemManager.setAbilityManager(abilityManager);
         this.advancedItemManager.loadItems();
         advancedItemManager.registerDefaultItems(getConfig());
+
+        // Item update manager (self-registers as Listener)
+        this.itemUpdateManager = new ItemUpdateManager(this, advancedItemManager);
 
         this.customItemGUI = new CustomItemGUI(this, advancedItemManager);
         this.abilityGUI = new ItemAbilityGUI(this, abilityManager);
@@ -93,14 +87,10 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(customItemListener, this);
         getServer().getPluginManager().registerEvents(new CustomItemRestrictionListener(this), this);
 
-        // Initialize potion effect listener
         this.customItemEffectListener = new CustomItemEffectListener(this, advancedItemManager);
         getServer().getPluginManager().registerEvents(customItemEffectListener, this);
 
-        // Initialize totem protection manager
         this.totemProtectionManager = new TotemProtectionManager(this);
-
-        // Initialize ability listener
         this.abilityListener = new ItemAbilityListener(this, abilityManager, advancedItemManager);
         getServer().getPluginManager().registerEvents(abilityListener, this);
 
@@ -108,6 +98,7 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         getLogger().info("§a✓ Custom Item Potion Effects initialized");
         getLogger().info("§a✓ Item Ability System initialized");
         getLogger().info("§a✓ Custom Enchant System initialized");
+        getLogger().info("§a✓ Item Update Manager initialized (event-driven)");
 
         // Register listeners
         this.deathListener = new DeathListener(this);
@@ -116,18 +107,17 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(heartUseListener, this);
         getServer().getPluginManager().registerEvents(this, this);
 
-        // Initialize crafting system
+        // Crafting system
         initializeCraftingSystem();
 
-        // Register commands
+        // Commands
         this.commandHandler = new CommandHandler(this, recipeBookItem, craftingGUI);
         registerCommands();
 
-        // Register custom recipes
+        // Recipes
         this.recipeManager = new RecipeManager(this);
         recipeManager.registerRecipes();
 
-        // Load saved crafting processes
         craftingManager.loadCraftingProcesses();
 
         getServer().getPluginManager().registerEvents(new Listener() {
@@ -136,19 +126,11 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
                 UUID uuid = event.getPlayer().getUniqueId();
                 if (craftingGUI != null) {
                     craftingGUI.removePlayer(uuid);
-                    if (craftingGUI.getAdminGUI() != null) {
-                        craftingGUI.getAdminGUI().cleanupPlayer(uuid);
-                    }
+                    if (craftingGUI.getAdminGUI() != null) craftingGUI.getAdminGUI().cleanupPlayer(uuid);
                 }
-                if (customItemGUI != null) {
-                    customItemGUI.cleanupPlayer(uuid);
-                }
-                if (abilityGUI != null) {
-                    abilityGUI.cleanupPlayer(uuid);
-                }
-                if (customEnchantGUI != null) {
-                    customEnchantGUI.cleanupPlayer(uuid);
-                }
+                if (customItemGUI != null) customItemGUI.cleanupPlayer(uuid);
+                if (abilityGUI != null) abilityGUI.cleanupPlayer(uuid);
+                if (customEnchantGUI != null) customEnchantGUI.cleanupPlayer(uuid);
             }
         }, this);
 
@@ -158,8 +140,8 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         getLogger().log(Level.INFO, "§d🧪 §ePotion Effects System loaded! §d🧪");
         getLogger().log(Level.INFO, "§6✨ §eAbility System loaded! §6✨");
         getLogger().log(Level.INFO, "§5✨ §eEnchant System loaded! §5✨");
+        getLogger().log(Level.INFO, "§a⟳ §eItem Update System loaded (verify-on-use)! §a⟳");
     }
-
 
     private void registerAbilities() {
         abilityManager.registerAbility(new HealingAbility(this));
@@ -197,40 +179,23 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
 
     private void initializeCraftingSystem() {
         NamespacedKey bookKey = new NamespacedKey(this, "recipe_book");
-
         this.recipeBookItem = new RecipeBookItem(bookKey, getConfig());
         this.craftingManager = new CraftingManager(this);
         this.craftingGUI = new CraftingGUI(this, craftingManager, getConfig(), customItemManager);
         this.recipeBookListener = new RecipeBookListener(this, recipeBookItem, craftingGUI, craftingManager);
-
         getServer().getPluginManager().registerEvents(recipeBookListener, this);
-
         getLogger().info("§a✓ Recipe Book System initialized");
         getLogger().info("§a✓ Crafting Manager initialized");
         getLogger().info("§a✓ Crafting GUI initialized");
     }
 
     private void registerCommands() {
-        if (getCommand("withdrawhearts") != null) {
-            getCommand("withdrawhearts").setExecutor(commandHandler);
-            getCommand("withdrawhearts").setTabCompleter(commandHandler);
-        }
-        if (getCommand("setmaxhp") != null) {
-            getCommand("setmaxhp").setExecutor(commandHandler);
-            getCommand("setmaxhp").setTabCompleter(commandHandler);
-        }
-        if (getCommand("craft") != null) {
-            getCommand("craft").setExecutor(commandHandler);
-            getCommand("craft").setTabCompleter(commandHandler);
-        }
-        if (getCommand("recipebook") != null) {
-            getCommand("recipebook").setExecutor(commandHandler);
-            getCommand("recipebook").setTabCompleter(commandHandler);
-        }
-        if (getCommand("customitem") != null) {
-            getCommand("customitem").setExecutor(commandHandler);
-            getCommand("customitem").setTabCompleter(commandHandler);
-        }
+        if (getCommand("withdrawhearts") != null) { getCommand("withdrawhearts").setExecutor(commandHandler); getCommand("withdrawhearts").setTabCompleter(commandHandler); }
+        if (getCommand("setmaxhp") != null) { getCommand("setmaxhp").setExecutor(commandHandler); getCommand("setmaxhp").setTabCompleter(commandHandler); }
+        if (getCommand("craft") != null) { getCommand("craft").setExecutor(commandHandler); getCommand("craft").setTabCompleter(commandHandler); }
+        if (getCommand("recipebook") != null) { getCommand("recipebook").setExecutor(commandHandler); getCommand("recipebook").setTabCompleter(commandHandler); }
+        if (getCommand("customitem") != null) { getCommand("customitem").setExecutor(commandHandler); getCommand("customitem").setTabCompleter(commandHandler); }
+        if (getCommand("reloaditems") != null) { getCommand("reloaditems").setExecutor(commandHandler); getCommand("reloaditems").setTabCompleter(commandHandler); }
     }
 
     @EventHandler
@@ -238,28 +203,14 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         UUID uuid = event.getPlayer().getUniqueId();
         if (craftingGUI != null) {
             craftingGUI.removePlayer(uuid);
-            if (craftingGUI.getAdminGUI() != null) {
-                craftingGUI.getAdminGUI().cleanupPlayer(uuid);
-            }
+            if (craftingGUI.getAdminGUI() != null) craftingGUI.getAdminGUI().cleanupPlayer(uuid);
         }
-        if (customItemGUI != null) {
-            customItemGUI.cleanupPlayer(uuid);
-        }
-        if (abilityGUI != null) {
-            abilityGUI.cleanupPlayer(uuid);
-        }
-        if (customEnchantGUI != null) {
-            customEnchantGUI.cleanupPlayer(uuid);
-        }
-        if (abilityManager != null && abilityManager.getCooldownManager() != null) {
-            abilityManager.getCooldownManager().cleanupExpired(uuid);
-        }
-        if (abilityManager.getAbility("explosive_charge") instanceof ExplosiveChargeAbility exp) {
-            exp.cleanupPlayer(uuid);
-        }
-        if (totemProtectionManager != null) {
-            totemProtectionManager.clearPlayer(uuid);
-        }
+        if (customItemGUI != null) customItemGUI.cleanupPlayer(uuid);
+        if (abilityGUI != null) abilityGUI.cleanupPlayer(uuid);
+        if (customEnchantGUI != null) customEnchantGUI.cleanupPlayer(uuid);
+        if (abilityManager != null && abilityManager.getCooldownManager() != null) abilityManager.getCooldownManager().cleanupExpired(uuid);
+        if (abilityManager.getAbility("explosive_charge") instanceof ExplosiveChargeAbility exp) exp.cleanupPlayer(uuid);
+        if (totemProtectionManager != null) totemProtectionManager.clearPlayer(uuid);
     }
 
     public AdvancedCustomItemManager getAdvancedItemManager() { return advancedItemManager; }
@@ -267,23 +218,15 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
     public ItemAbilityManager getAbilityManager() { return abilityManager; }
     public ItemAbilityGUI getAbilityGUI() { return abilityGUI; }
     public TotemProtectionManager getTotemProtectionManager() { return totemProtectionManager; }
+    public ItemUpdateManager getItemUpdateManager() { return itemUpdateManager; }
 
     @Override
     public void onDisable() {
-        if (craftingManager != null) {
-            craftingManager.forceSave();
-        }
-        if (advancedItemManager != null) {
-            advancedItemManager.saveItems();
-        }
-        if (customItemEffectListener != null) {
-            customItemEffectListener.shutdown();
-        }
+        if (craftingManager != null) craftingManager.forceSave();
+        if (advancedItemManager != null) advancedItemManager.saveItems();
+        if (customItemEffectListener != null) customItemEffectListener.shutdown();
         CriticalStrikeAbility critAbility = (CriticalStrikeAbility) abilityManager.getAbility("critical_strike");
-        if (critAbility != null) {
-            critAbility.cleanup();
-        }
-
+        if (critAbility != null) critAbility.cleanup();
         getLogger().log(Level.INFO, "§c❤ §eLifesteal Plugin disabled. Goodbye! §c❤");
     }
 

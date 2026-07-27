@@ -31,19 +31,21 @@ public class AdvancedCustomItemManager {
     private final Map<String, AdvancedCustomItem> items;
     private final NamespacedKey itemIdKey;
     private final NamespacedKey instanceUuidKey;
+    private final NamespacedKey versionKey;
     private final Set<String> activeInstanceUuids;
     private ItemAbilityManager abilityManager;
 
-    // Deterministic UUID per attribute type to prevent Bukkit attribute collision errors
     private UUID getAttributeUuid(Attribute attribute) {
         return UUID.nameUUIDFromBytes(("thelifesteal_attr_" + attribute.name().toLowerCase()).getBytes());
     }
+
     public AdvancedCustomItemManager(JavaPlugin plugin) {
         this.plugin = plugin;
         this.dataFile = new File(plugin.getDataFolder(), "custom_items.yml");
         this.items = new LinkedHashMap<>();
         this.itemIdKey = new NamespacedKey(plugin, "custom_item_id");
         this.instanceUuidKey = new NamespacedKey(plugin, "item_instance_uuid");
+        this.versionKey = new NamespacedKey(plugin, "item_version");
         this.activeInstanceUuids = ConcurrentHashMap.newKeySet();
     }
 
@@ -72,11 +74,8 @@ public class AdvancedCustomItemManager {
 
                 if (itemSection.contains("visualItemType")) {
                     String matName = itemSection.getString("visualItemType");
-                    try {
-                        item.setVisualItemType(Material.valueOf(matName));
-                    } catch (IllegalArgumentException e) {
-                        item.setVisualItemType(baseItem.getType());
-                    }
+                    try { item.setVisualItemType(Material.valueOf(matName)); }
+                    catch (IllegalArgumentException e) { item.setVisualItemType(baseItem.getType()); }
                 }
 
                 if (itemSection.contains("displayName")) item.setDisplayName(itemSection.getString("displayName"));
@@ -84,20 +83,19 @@ public class AdvancedCustomItemManager {
                 if (itemSection.contains("category")) item.setCategory(itemSection.getString("category", "Misc"));
                 if (itemSection.contains("rarity")) {
                     String rarityStr = itemSection.getString("rarity", "COMMON");
-                    try {
-                        item.setRarity(ItemLoreBuilder.Rarity.valueOf(rarityStr.toUpperCase()));
-                    } catch (IllegalArgumentException e) {
-                        item.setRarity(ItemLoreBuilder.Rarity.COMMON);
-                    }
+                    try { item.setRarity(ItemLoreBuilder.Rarity.valueOf(rarityStr.toUpperCase())); }
+                    catch (IllegalArgumentException e) { item.setRarity(ItemLoreBuilder.Rarity.COMMON); }
                 }
+
+                if (itemSection.contains("version")) item.setVersion(itemSection.getLong("version"));
+                if (itemSection.contains("disabled")) item.setDisabled(itemSection.getBoolean("disabled"));
 
                 ConfigurationSection attrSection = itemSection.getConfigurationSection("attributes");
                 if (attrSection != null) {
                     for (String attrName : attrSection.getKeys(false)) {
                         try {
                             Attribute attr = Attribute.valueOf(attrName);
-                            double value = attrSection.getDouble(attrName);
-                            item.addAttribute(attr, value);
+                            item.addAttribute(attr, attrSection.getDouble(attrName));
                         } catch (IllegalArgumentException ignored) {}
                     }
                 }
@@ -106,14 +104,20 @@ public class AdvancedCustomItemManager {
                 if (flagNames != null && !flagNames.isEmpty()) {
                     EnumSet<CustomItemFlag> flags = EnumSet.noneOf(CustomItemFlag.class);
                     for (String flagName : flagNames) {
-                        try {
-                            flags.add(CustomItemFlag.valueOf(flagName));
-                        } catch (IllegalArgumentException ignored) {}
+                        try { flags.add(CustomItemFlag.valueOf(flagName)); }
+                        catch (IllegalArgumentException ignored) {}
                     }
                     item.setFlags(flags);
                 }
 
                 if (itemSection.contains("customModelData")) item.setCustomModelData(itemSection.getInt("customModelData"));
+                if (itemSection.contains("itemModel")) {
+                    String modelStr = itemSection.getString("itemModel");
+                    if (modelStr != null && modelStr.contains(":")) {
+                        String[] parts = modelStr.split(":", 2);
+                        item.setItemModel(new NamespacedKey(parts[0], parts[1]));
+                    }
+                }
                 if (itemSection.contains("damage")) item.setDamage(itemSection.getInt("damage"));
 
                 List<String> enchantData = itemSection.getStringList("enchants");
@@ -124,9 +128,8 @@ public class AdvancedCustomItemManager {
                         if (parts.length == 2) {
                             Enchantment ench = Enchantment.getByKey(NamespacedKey.minecraft(parts[0].toLowerCase()));
                             if (ench != null) {
-                                try {
-                                    enchants.put(ench, Integer.parseInt(parts[1]));
-                                } catch (NumberFormatException ignored) {}
+                                try { enchants.put(ench, Integer.parseInt(parts[1])); }
+                                catch (NumberFormatException ignored) {}
                             }
                         }
                     }
@@ -147,9 +150,7 @@ public class AdvancedCustomItemManager {
                     ConfigurationSection abilitiesSection = itemSection.getConfigurationSection("abilities");
                     if (abilitiesSection != null) {
                         Map<String, Object> rawMap = new LinkedHashMap<>();
-                        for (String key : abilitiesSection.getKeys(false)) {
-                            rawMap.put(key, abilitiesSection.get(key));
-                        }
+                        for (String key : abilitiesSection.getKeys(false)) rawMap.put(key, abilitiesSection.get(key));
                         item.setAbilities(abilityManager.deserialize(rawMap));
                     }
                 }
@@ -182,11 +183,12 @@ public class AdvancedCustomItemManager {
             if (!item.getLore().isEmpty()) itemSection.set("lore", item.getLore());
             itemSection.set("category", item.getCategory());
             itemSection.set("rarity", item.getRarity().name());
+            itemSection.set("version", item.getVersion());
+            itemSection.set("disabled", item.isDisabled());
             if (!item.getAttributes().isEmpty()) {
                 ConfigurationSection attrSection = itemSection.createSection("attributes");
-                for (Map.Entry<Attribute, Double> entry : item.getAttributes().entrySet()) {
+                for (Map.Entry<Attribute, Double> entry : item.getAttributes().entrySet())
                     attrSection.set(entry.getKey().name(), entry.getValue());
-                }
             }
             if (!item.getFlags().isEmpty()) {
                 List<String> flagNames = new ArrayList<>();
@@ -194,36 +196,30 @@ public class AdvancedCustomItemManager {
                 itemSection.set("flags", flagNames);
             }
             if (item.getCustomModelData() != 0) itemSection.set("customModelData", item.getCustomModelData());
+            if (item.getItemModel() != null) {
+                itemSection.set("itemModel", item.getItemModel().getNamespace() + ":" + item.getItemModel().getKey());
+            }
             if (item.getDamage() != 0) itemSection.set("damage", item.getDamage());
-
             if (!item.getEnchants().isEmpty()) {
                 List<String> enchantData = new ArrayList<>();
-                for (Map.Entry<Enchantment, Integer> entry : item.getEnchants().entrySet()) {
+                for (Map.Entry<Enchantment, Integer> entry : item.getEnchants().entrySet())
                     enchantData.add(entry.getKey().getKey().getKey() + ":" + entry.getValue());
-                }
                 itemSection.set("enchants", enchantData);
             }
-
             if (!item.getPotionEffects().isEmpty()) {
                 List<String> potionData = new ArrayList<>();
-                for (AdvancedCustomItem.PotionEffectData effect : item.getPotionEffects()) {
+                for (AdvancedCustomItem.PotionEffectData effect : item.getPotionEffects())
                     potionData.add(effect.serialize());
-                }
                 itemSection.set("potionEffects", potionData);
             }
-
             if (abilityManager != null) {
                 Map<String, Object> abilityData = abilityManager.serialize(item.getAbilities());
-                if (!abilityData.isEmpty()) {
-                    itemSection.createSection("abilities", abilityData);
-                }
+                if (!abilityData.isEmpty()) itemSection.createSection("abilities", abilityData);
             }
-
             if (!item.getFutureExtensions().isEmpty()) {
                 ConfigurationSection extSection = itemSection.createSection("futureExtensions");
-                for (Map.Entry<String, Object> entry : item.getFutureExtensions().entrySet()) {
+                for (Map.Entry<String, Object> entry : item.getFutureExtensions().entrySet())
                     extSection.set(entry.getKey(), entry.getValue());
-                }
             }
         }
         try { config.save(dataFile); } catch (IOException e) { plugin.getLogger().warning("Failed to save: " + e.getMessage()); }
@@ -231,68 +227,43 @@ public class AdvancedCustomItemManager {
 
     public void registerDefaultItems(FileConfiguration config) {
         ConfigurationSection defaultsSection = config.getConfigurationSection("default-items");
-        if (defaultsSection == null) {
-            plugin.getLogger().info("No default items configured.");
-            return;
-        }
+        if (defaultsSection == null) { plugin.getLogger().info("No default items configured."); return; }
 
         for (String itemId : defaultsSection.getKeys(false)) {
             if (items.containsKey(itemId)) continue;
-
             try {
                 ConfigurationSection itemSection = defaultsSection.getConfigurationSection(itemId);
                 if (itemSection == null) continue;
-
                 String materialName = itemSection.getString("material", "STONE");
                 Material material = Material.getMaterial(materialName.toUpperCase());
-                if (material == null) {
-                    plugin.getLogger().warning("Invalid material for default item " + itemId + ": " + materialName);
-                    continue;
-                }
+                if (material == null) { plugin.getLogger().warning("Invalid material: " + materialName); continue; }
 
                 ItemStack baseItem = new ItemStack(material);
                 AdvancedCustomItem item = createItem(itemId, baseItem);
-
                 String displayName = itemSection.getString("display-name");
                 if (displayName != null) item.setDisplayName(displayName);
-
                 List<String> lore = itemSection.getStringList("lore");
                 if (!lore.isEmpty()) item.setLore(lore);
-
                 String rarityStr = itemSection.getString("rarity", "COMMON");
-                try {
-                    item.setRarity(ItemLoreBuilder.Rarity.valueOf(rarityStr.toUpperCase()));
-                } catch (IllegalArgumentException e) {
-                    item.setRarity(ItemLoreBuilder.Rarity.COMMON);
-                }
-
+                try { item.setRarity(ItemLoreBuilder.Rarity.valueOf(rarityStr.toUpperCase())); }
+                catch (IllegalArgumentException e) { item.setRarity(ItemLoreBuilder.Rarity.COMMON); }
                 item.setCategory(itemSection.getString("category", "Misc"));
-
                 List<String> flagNames = itemSection.getStringList("flags");
                 for (String flagName : flagNames) {
-                    try {
-                        item.getFlags().add(CustomItemFlag.valueOf(flagName.toUpperCase()));
-                    } catch (IllegalArgumentException e) {
-                        plugin.getLogger().warning("Invalid flag for " + itemId + ": " + flagName);
-                    }
+                    try { item.getFlags().add(CustomItemFlag.valueOf(flagName.toUpperCase())); }
+                    catch (IllegalArgumentException e) { plugin.getLogger().warning("Invalid flag: " + flagName); }
                 }
-
-                if (!AdvancedCustomItem.NON_STACKABLE_CATEGORIES.contains(item.getCategory())) {
+                if (!AdvancedCustomItem.NON_STACKABLE_CATEGORIES.contains(item.getCategory()))
                     item.getFlags().add(CustomItemFlag.NO_INSTANCE_UUID);
-                }
 
                 ConfigurationSection abilitiesSection = itemSection.getConfigurationSection("abilities");
                 if (abilitiesSection != null && abilityManager != null) {
                     Map<String, Object> rawMap = new LinkedHashMap<>();
-                    for (String key : abilitiesSection.getKeys(false)) {
-                        rawMap.put(key, abilitiesSection.get(key));
-                    }
+                    for (String key : abilitiesSection.getKeys(false)) rawMap.put(key, abilitiesSection.get(key));
                     item.setAbilities(abilityManager.deserialize(rawMap));
                 }
-
                 saveItems();
                 plugin.getLogger().info("Created default item: " + itemId);
-
             } catch (Exception e) {
                 plugin.getLogger().warning("Failed to create default item " + itemId + ": " + e.getMessage());
             }
@@ -302,21 +273,15 @@ public class AdvancedCustomItemManager {
     public AdvancedCustomItem createItem(String id, ItemStack baseItem) {
         ItemStack stripped = AdvancedCustomItem.stripVanillaStats(baseItem);
         Material visualType = stripped.getType();
-
         AdvancedCustomItem item = new AdvancedCustomItem(id, stripped);
         item.setVisualItemType(visualType);
         item.setBaseItem(stripped);
-
         items.put(id, item);
         saveItems();
         return item;
     }
 
-    public void deleteItem(String id) {
-        items.remove(id);
-        saveItems();
-    }
-
+    public void deleteItem(String id) { items.remove(id); saveItems(); }
     public AdvancedCustomItem getItem(String id) { return items.get(id); }
     public Collection<AdvancedCustomItem> getAllItems() { return new ArrayList<>(items.values()); }
 
@@ -329,28 +294,20 @@ public class AdvancedCustomItemManager {
     @SuppressWarnings("deprecation")
     public ItemStack buildItem(AdvancedCustomItem item, String idToStore) {
         if (item == null) return null;
-
         ItemStack result = item.getBaseItem().clone();
         ItemMeta meta = result.getItemMeta();
         if (meta == null) return result;
 
-        // Clear everything
         meta.setDisplayName(null);
         meta.setLore(null);
         meta.setUnbreakable(false);
-        for (Attribute attr : Attribute.values()) {
-            meta.removeAttributeModifier(attr);
-        }
+        for (Attribute attr : Attribute.values()) meta.removeAttributeModifier(attr);
         meta.removeItemFlags(ItemFlag.values());
-        for (Enchantment ench : meta.getEnchants().keySet()) {
-            meta.removeEnchant(ench);
-        }
+        for (Enchantment ench : meta.getEnchants().keySet()) meta.removeEnchant(ench);
 
-        // Zero out base attributes for weapons/armor/tools using per-attribute deterministic UUID
-        // This SETS the attribute to 0, then custom values SET on top
         if (AdvancedCustomItem.NON_STACKABLE_CATEGORIES.contains(item.getCategory())) {
-            Attribute[] zeroAttrs = new Attribute[] {
-                    Attribute.ATTACK_DAMAGE, Attribute.ATTACK_SPEED, Attribute.ARMOR, Attribute.ARMOR_TOUGHNESS
+            Attribute[] zeroAttrs = new Attribute[]{
+                    Attribute.ATTACK_DAMAGE, Attribute.ARMOR, Attribute.ARMOR_TOUGHNESS
             };
             for (Attribute attr : zeroAttrs) {
                 AttributeModifier zeroMod = new AttributeModifier(
@@ -359,39 +316,22 @@ public class AdvancedCustomItemManager {
             }
         }
 
-        // Display name
         String rarityColor = ItemLoreBuilder.getRarityColor(item.getRarity());
-        if (item.getDisplayName() != null && !item.getDisplayName().isEmpty()) {
+        if (item.getDisplayName() != null && !item.getDisplayName().isEmpty())
             meta.setDisplayName(ColorUtils.colorize(rarityColor + item.getDisplayName()));
-        } else {
+        else
             meta.setDisplayName(ColorUtils.colorize(rarityColor + formatMaterialName(item.getVisualItemType())));
-        }
 
-        // Lore
         List<String> builtLore = ItemLoreBuilder.buildLore(item, abilityManager);
-        if (!builtLore.isEmpty()) {
-            meta.setLore(builtLore);
-        }
+        if (!builtLore.isEmpty()) meta.setLore(builtLore);
 
-        // Enchants
-        for (Map.Entry<Enchantment, Integer> entry : item.getEnchants().entrySet()) {
+        for (Map.Entry<Enchantment, Integer> entry : item.getEnchants().entrySet())
             meta.addEnchant(entry.getKey(), entry.getValue(), true);
-        }
 
-        // Damage/durability
-        if (item.getDamage() > 0) {
-            ((org.bukkit.inventory.meta.Damageable) meta).setDamage(item.getDamage());
-        }
+        if (item.getDamage() > 0) ((org.bukkit.inventory.meta.Damageable) meta).setDamage(item.getDamage());
 
-        // Flags
-        if (item.hasFlag(CustomItemFlag.GLOW)) {
-            meta.addEnchant(Enchantment.LUCK_OF_THE_SEA, 1, true);
-            meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
-        }
-        if (item.hasFlag(CustomItemFlag.UNBREAKABLE)) {
-            meta.setUnbreakable(true);
-            if (item.hasFlag(CustomItemFlag.HIDE_UNBREAKABLE)) meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
-        }
+        if (item.hasFlag(CustomItemFlag.GLOW)) { meta.addEnchant(Enchantment.LUCK_OF_THE_SEA, 1, true); meta.addItemFlags(ItemFlag.HIDE_ENCHANTS); }
+        if (item.hasFlag(CustomItemFlag.UNBREAKABLE)) { meta.setUnbreakable(true); if (item.hasFlag(CustomItemFlag.HIDE_UNBREAKABLE)) meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE); }
         if (item.hasFlag(CustomItemFlag.HIDE_ENCHANTS)) meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         if (item.hasFlag(CustomItemFlag.HIDE_ATTRIBUTES)) meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         if (item.hasFlag(CustomItemFlag.HIDE_DESTROYS)) meta.addItemFlags(ItemFlag.HIDE_DESTROYS);
@@ -400,21 +340,21 @@ public class AdvancedCustomItemManager {
         if (item.hasFlag(CustomItemFlag.HIDE_DYE)) meta.addItemFlags(ItemFlag.HIDE_DYE);
         if (item.hasFlag(CustomItemFlag.HIDE_ARMOR_TRIM)) meta.addItemFlags(ItemFlag.HIDE_ARMOR_TRIM);
 
-        // Custom attributes — SET using per-attribute deterministic UUID
         for (Map.Entry<Attribute, Double> entry : item.getAttributes().entrySet()) {
             Attribute attr = entry.getKey();
             meta.removeAttributeModifier(attr);
             AttributeModifier modifier = new AttributeModifier(
-                    getAttributeUuid(attr),
-                    "custom_attr_" + attr.name().toLowerCase(),
-                    entry.getValue(),
-                    AttributeModifier.Operation.ADD_NUMBER
-            );
+                    getAttributeUuid(attr), "custom_attr_" + attr.name().toLowerCase(),
+                    entry.getValue(), AttributeModifier.Operation.ADD_NUMBER);
             meta.addAttributeModifier(attr, modifier);
         }
 
-        // Store item ID
+        if (item.getItemModel() != null) {
+            meta.setItemModel(item.getItemModel());
+        }
+
         meta.getPersistentDataContainer().set(itemIdKey, PersistentDataType.STRING, idToStore);
+        meta.getPersistentDataContainer().set(versionKey, PersistentDataType.LONG, item.getVersion());
 
         result.setItemMeta(meta);
         return result;
@@ -422,20 +362,14 @@ public class AdvancedCustomItemManager {
 
     public ItemStack buildItemForPlayer(AdvancedCustomItem item) {
         ItemStack stack = buildItem(item);
-
         if (item.shouldGetInstanceUuid()) {
             String uuid;
-            do {
-                uuid = UUID.randomUUID().toString();
-            } while (activeInstanceUuids.contains(uuid));
-
+            do { uuid = UUID.randomUUID().toString(); } while (activeInstanceUuids.contains(uuid));
             activeInstanceUuids.add(uuid);
-
             ItemMeta meta = stack.getItemMeta();
             meta.getPersistentDataContainer().set(instanceUuidKey, PersistentDataType.STRING, uuid);
             stack.setItemMeta(meta);
         }
-
         return stack;
     }
 
@@ -444,53 +378,7 @@ public class AdvancedCustomItemManager {
         return item.getItemMeta().getPersistentDataContainer().get(instanceUuidKey, PersistentDataType.STRING);
     }
 
-    public void removeInstance(String uuid) {
-        if (uuid != null) {
-            activeInstanceUuids.remove(uuid);
-        }
-    }
-
-    public void startDuplicateCheckTask() {
-        FoliaScheduler.runGlobalTimer(plugin, () -> {
-            for (Player player : Bukkit.getOnlinePlayers()) {
-                FoliaScheduler.runEntity(player, plugin, () -> {
-                    Map<String, List<ItemStack>> found = new HashMap<>();
-                    int deleted = 0;
-
-                    checkInventoryForDuplicates(player.getInventory().getContents(), found);
-                    checkInventoryForDuplicates(player.getInventory().getArmorContents(), found);
-                    ItemStack[] offhand = {player.getInventory().getItemInOffHand()};
-                    checkInventoryForDuplicates(offhand, found);
-                    checkInventoryForDuplicates(player.getEnderChest().getContents(), found);
-
-                    for (Map.Entry<String, List<ItemStack>> entry : found.entrySet()) {
-                        if (entry.getValue().size() > 1) {
-                            for (int i = 1; i < entry.getValue().size(); i++) {
-                                entry.getValue().get(i).setAmount(0);
-                                deleted++;
-                            }
-                            plugin.getLogger().warning("Deleted " + (entry.getValue().size() - 1) +
-                                    " duplicate(s) of item instance: " + entry.getKey());
-                        }
-                    }
-
-                    if (deleted > 0) {
-                        plugin.getLogger().info("Duplicate check: removed " + deleted + " duplicate items from player " + player.getName());
-                    }
-                });
-            }
-        }, 20L * 60, 20L * 60 * 5);
-    }
-
-    private void checkInventoryForDuplicates(ItemStack[] contents, Map<String, List<ItemStack>> found) {
-        for (ItemStack item : contents) {
-            if (item == null || item.getType() == Material.AIR) continue;
-            String uuid = getInstanceUuid(item);
-            if (uuid != null) {
-                found.computeIfAbsent(uuid, k -> new ArrayList<>()).add(item);
-            }
-        }
-    }
+    public void removeInstance(String uuid) { if (uuid != null) activeInstanceUuids.remove(uuid); }
 
     public void storeItemId(ItemStack item, String id) {
         if (item == null) return;
@@ -511,16 +399,44 @@ public class AdvancedCustomItemManager {
         return items.get(id);
     }
 
+    public void bumpVersion(String itemId) {
+        AdvancedCustomItem item = items.get(itemId);
+        if (item != null) {
+            item.incrementVersion();
+            saveItems();
+        }
+    }
+
+    public int purgeInstances(String itemId, ItemUpdateManager updateManager) {
+        if (updateManager == null) return 0;
+        return updateManager.purgeItem(itemId);
+    }
+
+    public int refreshRecipeResults(theLifesteal.crafting.CraftingManager craftingManager) {
+        int updated = 0;
+        for (theLifesteal.crafting.CraftingRecipe recipe : craftingManager.getAllRecipes()) {
+            ItemStack result = recipe.getResult();
+            String itemId = getItemId(result);
+            if (itemId != null) {
+                AdvancedCustomItem definition = getItem(itemId);
+                if (definition != null) {
+                    ItemStack fresh = buildItem(definition);
+                    fresh.setAmount(result.getAmount());
+                    recipe.setResult(fresh);
+                    updated++;
+                }
+            }
+        }
+        if (updated > 0) craftingManager.saveRecipes();
+        return updated;
+    }
+
     private String formatMaterialName(Material mat) {
         String name = mat.name().replace("_", " ").toLowerCase();
         String[] words = name.split(" ");
         StringBuilder sb = new StringBuilder();
         for (String word : words) {
-            if (!word.isEmpty()) {
-                sb.append(Character.toUpperCase(word.charAt(0)));
-                if (word.length() > 1) sb.append(word.substring(1));
-                sb.append(" ");
-            }
+            if (!word.isEmpty()) { sb.append(Character.toUpperCase(word.charAt(0))); if (word.length() > 1) sb.append(word.substring(1)); sb.append(" "); }
         }
         return sb.toString().trim();
     }
