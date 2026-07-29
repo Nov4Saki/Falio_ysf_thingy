@@ -124,7 +124,7 @@ public class CustomItemGUI {
                 title.contains("Name & Lore") || title.contains("Flags") ||
                 title.contains("Potion Effects") || title.contains("Choose Effect") ||
                 title.contains("Select Level") || title.contains("Show Particles") ||
-                title.contains("Category") || title.contains("Rarity") ||
+                title.contains("Category") || title.contains("Armor Piece") || title.contains("Rarity") ||
                 title.contains("Preview") || title.contains("Abilities") ||
                 title.contains("Choose Ability") || title.contains("Config:") ||
                 title.contains("Ability Slots") || title.contains("Enchantments") ||
@@ -197,6 +197,7 @@ public class CustomItemGUI {
         else if (title.contains("Select Level")) amplifierClick(p, slot, click);
         else if (title.contains("Choose Effect")) potionBrowserClick(p, slot, click);
         else if (title.contains("Potion Effects")) potionEffectsClick(p, slot, click);
+        else if (title.contains("Armor Piece")) armorPieceClick(p, slot);
         else if (title.contains("Category")) categoryClick(p, slot, click);
         else if (title.contains("Rarity")) rarityClick(p, slot, click);
         else if (title.contains("Preview")) previewClick(p, slot);
@@ -274,6 +275,13 @@ public class CustomItemGUI {
         gui.setItem(33, item(Material.BOOKSHELF, "&b📚 Category", "&7Current: &f" + ses.item.getCategory()));
         gui.setItem(34, item(Material.NETHER_STAR, "&e⭐ Rarity", "&7Current: " + ses.item.getRarity().getColorCode() + ses.item.getRarity().getDisplayName()));
         gui.setItem(39, item(Material.BLAZE_POWDER, "&6✨ Abilities", "&7Configure item abilities"));
+
+        if (AdvancedCustomItem.isArmorCategory(ses.item.getCategory())) {
+            ArmorPiece piece = ses.item.getArmorPiece();
+            gui.setItem(41, item(Material.IRON_CHESTPLATE, "&bArmor Piece",
+                    "&7Current: &f" + (piece == null ? "Not selected" : piece.getDisplayName()),
+                    "&aClick to choose the wearable slot"));
+        }
 
         boolean disabled = ses.item.isDisabled();
         gui.setItem(40, item(disabled ? Material.RED_DYE : Material.LIME_DYE,
@@ -416,6 +424,26 @@ public class CustomItemGUI {
         gui.setItem(22, item(Material.ARROW, "&a← Back to Editor")); return gui;
     }
 
+    private Inventory buildArmorPieceSelector(Player player) {
+        EditingSession ses = sessions.get(player.getUniqueId());
+        if (ses == null) return buildMainGUI(player);
+
+        Inventory gui = Bukkit.createInventory(null, 27,
+                net.kyori.adventure.text.Component.text(ColorUtils.colorize("&6Select Armor Piece")));
+        filler(gui);
+        ArmorPiece[] pieces = ArmorPiece.values();
+        Material[] icons = {Material.IRON_HELMET, Material.IRON_CHESTPLATE, Material.IRON_LEGGINGS, Material.IRON_BOOTS};
+        int[] slots = {10, 12, 14, 16};
+        for (int i = 0; i < pieces.length; i++) {
+            boolean selected = ses.item.getArmorPiece() == pieces[i];
+            gui.setItem(slots[i], item(selected ? Material.LIME_DYE : icons[i],
+                    "&b" + pieces[i].getDisplayName() + (selected ? " &aSelected" : ""),
+                    "&7Click to make this item wearable here"));
+        }
+        gui.setItem(22, item(Material.ARROW, "&aBack to Editor"));
+        return gui;
+    }
+
     private Inventory buildRaritySelector(Player player) {
         EditingSession ses = sessions.get(player.getUniqueId());
         if (ses == null) return buildMainGUI(player);
@@ -473,7 +501,7 @@ public class CustomItemGUI {
 
     private void templateClick(Player p, int slot, ItemStack cursor) {
         if (slot == 13) { if (cursor != null && cursor.getType() != Material.AIR) p.getOpenInventory().setItem(13, cursor.clone()); }
-        else if (slot == 22) { ItemStack t = p.getOpenInventory().getItem(13); if (t == null || t.getType() == Material.AIR || t.getType() == Material.GRAY_STAINED_GLASS_PANE) { p.sendMessage(ColorUtils.colorize("&cSet a template first!")); return; } String id = "custom_" + System.currentTimeMillis(); AdvancedCustomItem item = manager.createItem(id, t); if (!AdvancedCustomItem.NON_STACKABLE_CATEGORIES.contains(item.getCategory())) item.getFlags().add(CustomItemFlag.NO_INSTANCE_UUID); p.closeInventory(); openEditGUI(p, id); }
+        else if (slot == 22) { ItemStack t = p.getOpenInventory().getItem(13); if (t == null || t.getType() == Material.AIR || t.getType() == Material.GRAY_STAINED_GLASS_PANE) { p.sendMessage(ColorUtils.colorize("&cSet a template first!")); return; } String id = "custom_" + System.currentTimeMillis(); AdvancedCustomItem item = manager.createItem(id, t); if (!AdvancedCustomItem.isNonStackableCategory(item.getCategory())) item.addFlag(CustomItemFlag.NO_INSTANCE_UUID); p.closeInventory(); openEditGUI(p, id); }
         else if (slot == 26) openMainMenu(p);
     }
 
@@ -490,6 +518,7 @@ public class CustomItemGUI {
             case 34 -> { inTransition.add(p.getUniqueId()); p.openInventory(buildRaritySelector(p)); }
             case 39 -> { if (abilityGUI != null) { inTransition.add(p.getUniqueId()); p.closeInventory(); FoliaScheduler.runEntityLater(p, plugin, () -> abilityGUI.openAbilitiesMenu(p, ses.item, () -> p.openInventory(buildEditMain(p))), 2L); } }
             case 40 -> { ses.item.setDisabled(!ses.item.isDisabled()); inTransition.add(p.getUniqueId()); p.openInventory(buildEditMain(p)); }
+            case 41 -> { if (AdvancedCustomItem.isArmorCategory(ses.item.getCategory())) { inTransition.add(p.getUniqueId()); p.openInventory(buildArmorPieceSelector(p)); } }
             case 49 -> commitAndExit(p, true);
             case 50 -> { sessions.remove(p.getUniqueId()); p.closeInventory(); openMainMenu(p); }
         }
@@ -524,7 +553,17 @@ public class CustomItemGUI {
         if (ses == null) return;
         int[] fs = {10,11,12,13,14,15,16,19,20,21,22,23,24,25,28,29,30,31,32,33,34,37,38,39,40,41,42,43};
         CustomItemFlag[] all = CustomItemFlag.values();
-        for (int i=0;i<fs.length&&i<all.length;i++){if(slot==fs[i]){ses.item.toggleFlag(all[i]);inTransition.add(p.getUniqueId());p.openInventory(buildFlags(p));return;}}
+        for (int i=0;i<fs.length&&i<all.length;i++){
+            if(slot!=fs[i]) continue;
+            if (all[i] == CustomItemFlag.NO_INSTANCE_UUID && ses.item.shouldGetInstanceUuid()) {
+                p.sendMessage(ColorUtils.colorize("&cWeapons, Armor, and Tools are always non-stackable."));
+                return;
+            }
+            ses.item.toggleFlag(all[i]);
+            inTransition.add(p.getUniqueId());
+            p.openInventory(buildFlags(p));
+            return;
+        }
     }
 
     private void potionEffectsClick(Player p, int slot, ClickType click) {
@@ -568,7 +607,46 @@ public class CustomItemGUI {
     private void categoryClick(Player p, int slot, ClickType click) {
         if(slot==22){inTransition.add(p.getUniqueId());p.openInventory(buildEditMain(p));return;}
         List<String> cats=ItemLoreBuilder.getCategoryNames();int[]cs={10,11,12,13,14,15,16};
-        for(int i=0;i<cs.length&&i<cats.size();i++){if(slot==cs[i]){EditingSession ses=sessions.get(p.getUniqueId());if(ses!=null){ses.item.setCategory(cats.get(i));p.sendMessage(ColorUtils.colorize("&aCategory set to &b"+cats.get(i)));}inTransition.add(p.getUniqueId());p.openInventory(buildEditMain(p));return;}}
+        for(int i=0;i<cs.length&&i<cats.size();i++){
+            if(slot!=cs[i]) continue;
+            EditingSession ses=sessions.get(p.getUniqueId());
+            if(ses==null) return;
+
+            String category = cats.get(i);
+            ses.item.setCategory(category);
+            if (AdvancedCustomItem.isNonStackableCategory(category)) {
+                ses.item.removeFlag(CustomItemFlag.NO_INSTANCE_UUID);
+            }
+            if (AdvancedCustomItem.isArmorCategory(category)) {
+                p.sendMessage(ColorUtils.colorize("&aArmor selected. Choose its wearable piece."));
+                inTransition.add(p.getUniqueId());
+                p.openInventory(buildArmorPieceSelector(p));
+                return;
+            }
+
+            ses.item.setArmorPiece(null);
+            p.sendMessage(ColorUtils.colorize("&aCategory set to &b"+category));
+            inTransition.add(p.getUniqueId());
+            p.openInventory(buildEditMain(p));
+            return;
+        }
+    }
+
+    private void armorPieceClick(Player p, int slot) {
+        EditingSession ses = sessions.get(p.getUniqueId());
+        if (ses == null) return;
+        if (slot == 22) { inTransition.add(p.getUniqueId()); p.openInventory(buildEditMain(p)); return; }
+
+        ArmorPiece[] pieces = ArmorPiece.values();
+        int[] slots = {10, 12, 14, 16};
+        for (int i = 0; i < pieces.length; i++) {
+            if (slot != slots[i]) continue;
+            ses.item.setArmorPiece(pieces[i]);
+            p.sendMessage(ColorUtils.colorize("&aArmor piece set to &b" + pieces[i].getDisplayName()));
+            inTransition.add(p.getUniqueId());
+            p.openInventory(buildEditMain(p));
+            return;
+        }
     }
 
     private void rarityClick(Player p, int slot, ClickType click) {
@@ -581,9 +659,15 @@ public class CustomItemGUI {
 
     // ==================== SESSION ====================
 
-    private void commitSession(Player player) {
+    private boolean commitSession(Player player) {
         EditingSession ses = sessions.get(player.getUniqueId());
-        if (ses == null) return;
+        if (ses == null) return false;
+        if (AdvancedCustomItem.isArmorCategory(ses.item.getCategory()) && ses.item.getArmorPiece() == null) {
+            player.sendMessage(ColorUtils.colorize("&cChoose a Helmet, Chestplate, Leggings, or Boots slot before saving armor."));
+            inTransition.add(player.getUniqueId());
+            player.openInventory(buildArmorPieceSelector(player));
+            return false;
+        }
         AdvancedCustomItem original = manager.getItem(ses.item.getId());
         if (original != null) {
             original.setBaseItem(ses.item.getBaseItem()); original.setDisplayName(ses.item.getDisplayName());
@@ -592,6 +676,7 @@ public class CustomItemGUI {
             original.setItemModel(ses.item.getItemModel());
             original.setDamage(ses.item.getDamage()); original.setFutureExtensions(ses.item.getFutureExtensions());
             original.setPotionEffects(ses.item.getPotionEffects()); original.setCategory(ses.item.getCategory());
+            original.setArmorPiece(ses.item.getArmorPiece());
             original.setRarity(ses.item.getRarity()); original.setAbilities(ses.item.getAbilities());
             original.setEnchants(ses.item.getEnchants()); original.setDisabled(ses.item.isDisabled());
             manager.bumpVersion(ses.item.getId());
@@ -599,9 +684,10 @@ public class CustomItemGUI {
         }
         sessions.remove(player.getUniqueId()); chatInput.remove(player.getUniqueId());
         returnAction.remove(player.getUniqueId()); inTransition.remove(player.getUniqueId());
+        return true;
     }
 
-    private void commitAndExit(Player player, boolean close) { commitSession(player); if (close) player.closeInventory(); openMainMenu(player); }
+    private void commitAndExit(Player player, boolean close) { if (!commitSession(player)) return; if (close) player.closeInventory(); openMainMenu(player); }
 
     // ==================== ITEMS ====================
 

@@ -1,5 +1,9 @@
 package theLifesteal.customitem;
 
+import io.papermc.paper.datacomponent.DataComponentTypes;
+import io.papermc.paper.datacomponent.item.CustomModelData;
+import io.papermc.paper.datacomponent.item.Equippable;
+import net.kyori.adventure.key.Key;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -12,6 +16,7 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.EquipmentSlotGroup;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -26,12 +31,16 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class AdvancedCustomItemManager {
 
+    public static final int CURRENT_ITEM_FORMAT = 2;
+
     private final JavaPlugin plugin;
     private final File dataFile;
     private final Map<String, AdvancedCustomItem> items;
     private final NamespacedKey itemIdKey;
     private final NamespacedKey instanceUuidKey;
     private final NamespacedKey versionKey;
+    private final NamespacedKey formatKey;
+    private final NamespacedKey modelBackupKey;
     private final Set<String> activeInstanceUuids;
     private ItemAbilityManager abilityManager;
 
@@ -46,6 +55,8 @@ public class AdvancedCustomItemManager {
         this.itemIdKey = new NamespacedKey(plugin, "custom_item_id");
         this.instanceUuidKey = new NamespacedKey(plugin, "item_instance_uuid");
         this.versionKey = new NamespacedKey(plugin, "item_version");
+        this.formatKey = new NamespacedKey(plugin, "custom_item_format");
+        this.modelBackupKey = new NamespacedKey(plugin, "model_backup");
         this.activeInstanceUuids = ConcurrentHashMap.newKeySet();
     }
 
@@ -54,6 +65,8 @@ public class AdvancedCustomItemManager {
     }
 
     public NamespacedKey getItemIdKey() { return itemIdKey; }
+    public NamespacedKey getModelBackupKey() { return modelBackupKey; }
+    public NamespacedKey getFormatKey() { return formatKey; }
 
     @SuppressWarnings("deprecation")
     public void loadItems() {
@@ -81,6 +94,13 @@ public class AdvancedCustomItemManager {
                 if (itemSection.contains("displayName")) item.setDisplayName(itemSection.getString("displayName"));
                 if (itemSection.contains("lore")) item.setLore(itemSection.getStringList("lore"));
                 if (itemSection.contains("category")) item.setCategory(itemSection.getString("category", "Misc"));
+                if (itemSection.contains("armorPiece")) {
+                    try {
+                        item.setArmorPiece(ArmorPiece.valueOf(itemSection.getString("armorPiece", "").toUpperCase()));
+                    } catch (IllegalArgumentException ignored) {
+                        item.setArmorPiece(null);
+                    }
+                }
                 if (itemSection.contains("rarity")) {
                     String rarityStr = itemSection.getString("rarity", "COMMON");
                     try { item.setRarity(ItemLoreBuilder.Rarity.valueOf(rarityStr.toUpperCase())); }
@@ -182,6 +202,7 @@ public class AdvancedCustomItemManager {
             if (item.getDisplayName() != null) itemSection.set("displayName", item.getDisplayName());
             if (!item.getLore().isEmpty()) itemSection.set("lore", item.getLore());
             itemSection.set("category", item.getCategory());
+            if (item.getArmorPiece() != null) itemSection.set("armorPiece", item.getArmorPiece().name());
             itemSection.set("rarity", item.getRarity().name());
             itemSection.set("version", item.getVersion());
             itemSection.set("disabled", item.isDisabled());
@@ -250,11 +271,11 @@ public class AdvancedCustomItemManager {
                 item.setCategory(itemSection.getString("category", "Misc"));
                 List<String> flagNames = itemSection.getStringList("flags");
                 for (String flagName : flagNames) {
-                    try { item.getFlags().add(CustomItemFlag.valueOf(flagName.toUpperCase())); }
+                    try { item.addFlag(CustomItemFlag.valueOf(flagName.toUpperCase())); }
                     catch (IllegalArgumentException e) { plugin.getLogger().warning("Invalid flag: " + flagName); }
                 }
-                if (!AdvancedCustomItem.NON_STACKABLE_CATEGORIES.contains(item.getCategory()))
-                    item.getFlags().add(CustomItemFlag.NO_INSTANCE_UUID);
+                if (!AdvancedCustomItem.isNonStackableCategory(item.getCategory()))
+                    item.addFlag(CustomItemFlag.NO_INSTANCE_UUID);
 
                 ConfigurationSection abilitiesSection = itemSection.getConfigurationSection("abilities");
                 if (abilitiesSection != null && abilityManager != null) {
@@ -295,6 +316,7 @@ public class AdvancedCustomItemManager {
     public ItemStack buildItem(AdvancedCustomItem item, String idToStore) {
         if (item == null) return null;
         ItemStack result = item.getBaseItem().clone();
+        ItemStack originalBase = result.clone();
         ItemMeta meta = result.getItemMeta();
         if (meta == null) return result;
 
@@ -305,13 +327,15 @@ public class AdvancedCustomItemManager {
         meta.removeItemFlags(ItemFlag.values());
         for (Enchantment ench : meta.getEnchants().keySet()) meta.removeEnchant(ench);
 
-        if (AdvancedCustomItem.NON_STACKABLE_CATEGORIES.contains(item.getCategory())) {
+        EquipmentSlotGroup statSlotGroup = getAttributeSlotGroup(item);
+        if (AdvancedCustomItem.isNonStackableCategory(item.getCategory())) {
             Attribute[] zeroAttrs = new Attribute[]{
                     Attribute.ATTACK_DAMAGE, Attribute.ARMOR, Attribute.ARMOR_TOUGHNESS
             };
             for (Attribute attr : zeroAttrs) {
                 AttributeModifier zeroMod = new AttributeModifier(
-                        getAttributeUuid(attr), "custom_attr_" + attr.name().toLowerCase(), 0, AttributeModifier.Operation.ADD_NUMBER);
+                        getAttributeUuid(attr), "custom_attr_" + attr.name().toLowerCase(), 0,
+                        AttributeModifier.Operation.ADD_NUMBER, statSlotGroup);
                 meta.addAttributeModifier(attr, zeroMod);
             }
         }
@@ -330,7 +354,7 @@ public class AdvancedCustomItemManager {
 
         if (item.getDamage() > 0) ((org.bukkit.inventory.meta.Damageable) meta).setDamage(item.getDamage());
 
-        if (item.hasFlag(CustomItemFlag.GLOW)) { meta.addEnchant(Enchantment.LUCK_OF_THE_SEA, 1, true); meta.addItemFlags(ItemFlag.HIDE_ENCHANTS); }
+        if (item.hasFlag(CustomItemFlag.GLOW)) { meta.setEnchantmentGlintOverride(true); }
         if (item.hasFlag(CustomItemFlag.UNBREAKABLE)) { meta.setUnbreakable(true); if (item.hasFlag(CustomItemFlag.HIDE_UNBREAKABLE)) meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE); }
         if (item.hasFlag(CustomItemFlag.HIDE_ENCHANTS)) meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         if (item.hasFlag(CustomItemFlag.HIDE_ATTRIBUTES)) meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
@@ -345,58 +369,128 @@ public class AdvancedCustomItemManager {
             meta.removeAttributeModifier(attr);
             AttributeModifier modifier = new AttributeModifier(
                     getAttributeUuid(attr), "custom_attr_" + attr.name().toLowerCase(),
-                    entry.getValue(), AttributeModifier.Operation.ADD_NUMBER);
+                    entry.getValue(), AttributeModifier.Operation.ADD_NUMBER, statSlotGroup);
             meta.addAttributeModifier(attr, modifier);
         }
 
+        result.setItemMeta(meta);
+
+        // setItemMeta may rebuild only the Bukkit-known portion of an item.
+        // Restore every other Paper/Minecraft component from the base item.
+        ItemComponentUtil.preserveUnmanagedComponents(result, originalBase);
+
+        // Item model and custom model data are native 1.21 components. Set
+        // them directly after the ItemMeta round-trip so they cannot be
+        // silently dropped by CraftMetaItem.
         if (item.getItemModel() != null) {
-            meta.setItemModel(item.getItemModel());
+            result.setData(DataComponentTypes.ITEM_MODEL,
+                    Key.key(item.getItemModel().getNamespace(), item.getItemModel().getKey()));
+        } else {
+            result.unsetData(DataComponentTypes.ITEM_MODEL);
         }
 
-        meta.getPersistentDataContainer().set(itemIdKey, PersistentDataType.STRING, idToStore);
-        meta.getPersistentDataContainer().set(versionKey, PersistentDataType.LONG, item.getVersion());
+        if (item.getCustomModelData() != 0) {
+            result.setData(DataComponentTypes.CUSTOM_MODEL_DATA,
+                    CustomModelData.customModelData()
+                            .addFloat(item.getCustomModelData())
+                            .build());
+        } else {
+            result.unsetData(DataComponentTypes.CUSTOM_MODEL_DATA);
+        }
 
-        result.setItemMeta(meta);
+        if (AdvancedCustomItem.isArmorCategory(item.getCategory()) && item.getArmorPiece() != null) {
+            result.setData(DataComponentTypes.EQUIPPABLE,
+                    Equippable.equippable(item.getArmorPiece().getEquipmentSlot())
+                            .equipOnInteract(true)
+                            .swappable(true)
+                            .build());
+        } else {
+            result.unsetData(DataComponentTypes.EQUIPPABLE);
+        }
+
+        result.editPersistentDataContainer(container -> {
+            if (item.getItemModel() != null) {
+                container.set(
+                        modelBackupKey,
+                        PersistentDataType.STRING,
+                        item.getItemModel().getNamespace() + ":" + item.getItemModel().getKey()
+                );
+            } else {
+                container.remove(modelBackupKey);
+            }
+            container.set(itemIdKey, PersistentDataType.STRING, idToStore);
+            container.set(versionKey, PersistentDataType.LONG, item.getVersion());
+            container.set(formatKey, PersistentDataType.INTEGER, CURRENT_ITEM_FORMAT);
+        });
         return result;
     }
 
     public ItemStack buildItemForPlayer(AdvancedCustomItem item) {
         ItemStack stack = buildItem(item);
-        if (item.shouldGetInstanceUuid()) {
-            String uuid;
-            do { uuid = UUID.randomUUID().toString(); } while (activeInstanceUuids.contains(uuid));
-            activeInstanceUuids.add(uuid);
-            ItemMeta meta = stack.getItemMeta();
-            meta.getPersistentDataContainer().set(instanceUuidKey, PersistentDataType.STRING, uuid);
-            stack.setItemMeta(meta);
-        }
+        ensureInstanceUuid(stack, item);
         return stack;
     }
 
+    /**
+     * Assign the durable per-stack identity required to keep equipment
+     * categories from merging. Returns true only when a new identity was added.
+     */
+    public boolean ensureInstanceUuid(ItemStack stack, AdvancedCustomItem item) {
+        if (stack == null || item == null || !item.shouldGetInstanceUuid()) return false;
+        if (getInstanceUuid(stack) != null) return false;
+
+        assignFreshInstanceUuid(stack, item);
+        return true;
+    }
+
+    /**
+     * Replace a category item's instance identity. Used only when a legacy
+     * stack is split into individual non-stackable copies.
+     */
+    public void assignFreshInstanceUuid(ItemStack stack, AdvancedCustomItem item) {
+        if (stack == null || item == null || !item.shouldGetInstanceUuid()) return;
+
+        String uuid;
+        do {
+            uuid = UUID.randomUUID().toString();
+        } while (!activeInstanceUuids.add(uuid));
+
+        String instanceUuid = uuid;
+        stack.editPersistentDataContainer(container ->
+                container.set(instanceUuidKey, PersistentDataType.STRING, instanceUuid));
+    }
+
     public String getInstanceUuid(ItemStack item) {
-        if (item == null || !item.hasItemMeta()) return null;
-        return item.getItemMeta().getPersistentDataContainer().get(instanceUuidKey, PersistentDataType.STRING);
+        if (item == null) return null;
+        return item.getPersistentDataContainer().get(instanceUuidKey, PersistentDataType.STRING);
     }
 
     public void removeInstance(String uuid) { if (uuid != null) activeInstanceUuids.remove(uuid); }
 
     public void storeItemId(ItemStack item, String id) {
         if (item == null) return;
-        ItemMeta meta = item.getItemMeta();
-        if (meta == null) return;
-        meta.getPersistentDataContainer().set(itemIdKey, PersistentDataType.STRING, id);
-        item.setItemMeta(meta);
+        item.editPersistentDataContainer(container ->
+                container.set(itemIdKey, PersistentDataType.STRING, id));
     }
 
     public String getItemId(ItemStack item) {
-        if (item == null || !item.hasItemMeta()) return null;
-        return item.getItemMeta().getPersistentDataContainer().get(itemIdKey, PersistentDataType.STRING);
+        if (item == null) return null;
+        return item.getPersistentDataContainer().get(itemIdKey, PersistentDataType.STRING);
     }
 
     public AdvancedCustomItem getItemByStack(ItemStack item) {
         String id = getItemId(item);
         if (id == null) return null;
         return items.get(id);
+    }
+
+    private EquipmentSlotGroup getAttributeSlotGroup(AdvancedCustomItem item) {
+        if (AdvancedCustomItem.isArmorCategory(item.getCategory()) && item.getArmorPiece() != null) {
+            return item.getArmorPiece().getEquipmentSlotGroup();
+        }
+        return item.hasFlag(CustomItemFlag.OFFHAND_STATS)
+                ? EquipmentSlotGroup.HAND
+                : EquipmentSlotGroup.MAINHAND;
     }
 
     public void bumpVersion(String itemId) {

@@ -23,6 +23,7 @@ import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
 import theLifesteal.customitem.AdvancedCustomItem;
 import theLifesteal.customitem.AdvancedCustomItemManager;
+import theLifesteal.customitem.ItemComponentUtil;
 import theLifesteal.customitem.ItemLoreBuilder;
 
 import java.util.*;
@@ -152,7 +153,7 @@ public class ReaperAbility extends ItemAbility implements Listener {
         }
 
         meta.setLore(updatedLore);
-        item.setItemMeta(meta);
+        ItemComponentUtil.setMetaPreservingComponents(item, meta);
 
         killer.playSound(killer.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
         killer.sendMessage(ColorUtils.colorize("&c&l✦ REAPER! &7Your weapon gained &c+" + formatDamage(damagePerKill) + " &7extra damage! &8(Current: +" + formatDamage(newBonus) + "/" + formatDamage(maxBonusDamage) + ")"));

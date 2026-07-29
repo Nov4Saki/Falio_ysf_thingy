@@ -9,6 +9,7 @@ import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import io.papermc.paper.datacomponent.DataComponentTypes;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -119,7 +120,7 @@ public class PhoenixAbility extends ItemAbility {
                     int damageToAdd = (int) Math.ceil(maxDurability * 0.5);
                     int newDamage = currentDamage + damageToAdd;
                     damageable.setDamage(newDamage);
-                    item.setItemMeta((ItemMeta) damageable);
+                    item.setData(DataComponentTypes.DAMAGE, newDamage);
 
                     if (newDamage >= maxDurability) {
                         item.setAmount(item.getAmount() - 1);

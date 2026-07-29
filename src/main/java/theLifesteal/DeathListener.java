@@ -110,8 +110,15 @@ public class DeathListener implements Listener {
 
         // Build and drop the item
         int dropCount = configManager.getConfig().getInt("settings.death-drop.drop-count", 1);
-        ItemStack dropStack = advancedItemManager.buildItem(customItem);
-        dropStack.setAmount(dropCount);
-        victim.getWorld().dropItemNaturally(victim.getLocation(), dropStack);
+        if (customItem.shouldGetInstanceUuid()) {
+            for (int i = 0; i < dropCount; i++) {
+                victim.getWorld().dropItemNaturally(victim.getLocation(),
+                        advancedItemManager.buildItemForPlayer(customItem));
+            }
+        } else {
+            ItemStack dropStack = advancedItemManager.buildItemForPlayer(customItem);
+            dropStack.setAmount(dropCount);
+            victim.getWorld().dropItemNaturally(victim.getLocation(), dropStack);
+        }
     }
 }

@@ -16,6 +16,7 @@ import theLifesteal.customitem.CustomItemListener;
 import theLifesteal.customitem.CustomItemRestrictionListener;
 import theLifesteal.customitem.CustomItemEffectListener;
 import theLifesteal.customitem.ItemUpdateManager;
+import theLifesteal.customitem.ItemModelPreservationListener;
 
 import java.util.UUID;
 import java.util.logging.Level;
@@ -75,6 +76,8 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
 
         // Item update manager (self-registers as Listener)
         this.itemUpdateManager = new ItemUpdateManager(this, advancedItemManager);
+        getServer().getPluginManager().registerEvents(
+                new ItemModelPreservationListener(this, advancedItemManager, itemUpdateManager), this);
 
         this.customItemGUI = new CustomItemGUI(this, advancedItemManager);
         this.abilityGUI = new ItemAbilityGUI(this, abilityManager);
@@ -225,8 +228,10 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         if (craftingManager != null) craftingManager.forceSave();
         if (advancedItemManager != null) advancedItemManager.saveItems();
         if (customItemEffectListener != null) customItemEffectListener.shutdown();
-        CriticalStrikeAbility critAbility = (CriticalStrikeAbility) abilityManager.getAbility("critical_strike");
-        if (critAbility != null) critAbility.cleanup();
+        if (abilityManager != null) {
+            CriticalStrikeAbility critAbility = (CriticalStrikeAbility) abilityManager.getAbility("critical_strike");
+            if (critAbility != null) critAbility.cleanup();
+        }
         getLogger().log(Level.INFO, "§c❤ §eLifesteal Plugin disabled. Goodbye! §c❤");
     }
 

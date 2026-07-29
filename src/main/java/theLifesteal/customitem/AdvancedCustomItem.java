@@ -34,6 +34,7 @@ public class AdvancedCustomItem {
     private ItemLoreBuilder.Rarity rarity;
     private Map<ItemAbilityType, List<ItemAbilityData>> abilities;
     private Map<Enchantment, Integer> enchants;
+    private ArmorPiece armorPiece;
     private long version;
     private boolean disabled;
 
@@ -57,6 +58,7 @@ public class AdvancedCustomItem {
             this.abilities.put(type, new ArrayList<>());
         }
         this.enchants = new LinkedHashMap<>();
+        this.armorPiece = null;
         this.version = 1L;
         this.disabled = false;
     }
@@ -68,12 +70,23 @@ public class AdvancedCustomItem {
     public void setVisualItemType(Material visualItemType) { this.visualItemType = visualItemType; }
 
     public boolean shouldGetInstanceUuid() {
-        if (hasFlag(CustomItemFlag.NO_INSTANCE_UUID)) return false;
-        return NON_STACKABLE_CATEGORIES.contains(category);
+        // Equipment categories must always be unique, even when a stale or
+        // manually-added NO_INSTANCE_UUID flag exists on an old definition.
+        return isNonStackableCategory(category);
+    }
+
+    public static boolean isNonStackableCategory(String category) {
+        if (category == null) return false;
+        return NON_STACKABLE_CATEGORIES.stream().anyMatch(category::equalsIgnoreCase);
+    }
+
+    public static boolean isArmorCategory(String category) {
+        return category != null && "Armor".equalsIgnoreCase(category);
     }
 
     public static ItemStack stripVanillaStats(ItemStack item) {
         ItemStack clean = item.clone();
+        ItemStack original = clean.clone();
         org.bukkit.inventory.meta.ItemMeta meta = clean.getItemMeta();
         if (meta == null) return clean;
         meta.setDisplayName(null);
@@ -90,6 +103,7 @@ public class AdvancedCustomItem {
         }
         meta.removeItemFlags(org.bukkit.inventory.ItemFlag.values());
         clean.setItemMeta(meta);
+        ItemComponentUtil.preserveUnmanagedComponents(clean, original);
         return clean;
     }
 
@@ -104,6 +118,8 @@ public class AdvancedCustomItem {
     public EnumSet<CustomItemFlag> getFlags() { return EnumSet.copyOf(flags); }
     public void setFlags(EnumSet<CustomItemFlag> flags) { this.flags = EnumSet.copyOf(flags); }
     public boolean hasFlag(CustomItemFlag flag) { return flags.contains(flag); }
+    public void addFlag(CustomItemFlag flag) { if (flag != null) flags.add(flag); }
+    public void removeFlag(CustomItemFlag flag) { if (flag != null) flags.remove(flag); }
     public void toggleFlag(CustomItemFlag flag) {
         if (flags.contains(flag)) flags.remove(flag);
         else flags.add(flag);
@@ -136,6 +152,9 @@ public class AdvancedCustomItem {
 
     public Map<Enchantment, Integer> getEnchants() { return enchants; }
     public void setEnchants(Map<Enchantment, Integer> enchants) { this.enchants = new LinkedHashMap<>(enchants); }
+
+    public ArmorPiece getArmorPiece() { return armorPiece; }
+    public void setArmorPiece(ArmorPiece armorPiece) { this.armorPiece = armorPiece; }
 
     public long getVersion() { return version; }
     public void setVersion(long version) { this.version = version; }
@@ -191,6 +210,7 @@ public class AdvancedCustomItem {
         }
         clone.setAbilities(abilitiesCopy);
         clone.setEnchants(new LinkedHashMap<>(this.enchants));
+        clone.setArmorPiece(this.armorPiece);
         return clone;
     }
 
