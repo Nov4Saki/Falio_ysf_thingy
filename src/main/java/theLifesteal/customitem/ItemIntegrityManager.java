@@ -1,13 +1,12 @@
 package theLifesteal.customitem;
 
-import io.papermc.paper.datacomponent.DataComponentType;
 import io.papermc.paper.datacomponent.DataComponentTypes;
-import io.papermc.paper.datacomponent.item.CustomModelData;
 import net.kyori.adventure.key.Key;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -34,16 +33,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 /**
- * Unified item integrity manager.
+ * Simplified item integrity manager.
  *
- * Responsibilities:
- * - Restore item_model DataComponent on drop/move (lightweight, in-place)
- * - Scan player inventories on join/world-change/command for outdated items
- * - Apply safe definition updates via component-level rebuild (no setItemMeta on originals)
- * - Handle disabled items → broken placeholder conversion
- * - Handle legacy stack splitting for non-stackable categories
- * - Handle instance UUID assignment for non-stackable items
- * - Update format stamps without triggering definition rebuilds
+ * Since lore is now packet-injected (not baked on items), this manager only handles:
+ * - Gameplay-critical definition updates (enchants, attributes, model, damage,
+ *   unbreakable, equippable, display name)
+ * - Disabled item → broken placeholder conversion
+ * - Instance UUID assignment for non-stackable items
+ * - Legacy lore stripping (one-time migration for pre-existing items)
+ * - item_model DataComponent restoration on drop/move
  */
 public class ItemIntegrityManager implements Listener {
 
@@ -53,9 +51,7 @@ public class ItemIntegrityManager implements Listener {
     // PDC keys
     private final NamespacedKey itemIdKey;
     private final NamespacedKey versionKey;
-    private final NamespacedKey formatKey;
     private final NamespacedKey instanceUuidKey;
-    private final NamespacedKey modelBackupKey;
 
     // Configuration
     private boolean enabled;
@@ -65,49 +61,13 @@ public class ItemIntegrityManager implements Listener {
     // Debounce: only one pending scan per player
     private final Set<UUID> pendingScans = ConcurrentHashMap.newKeySet();
 
-    /**
-     * DataComponent types that the plugin explicitly manages during definition builds.
-     * These are NOT preserved from the original item during a safe rebuild because
-     * the fresh build provides the updated values.
-     *
-     * ALL other components are preserved from the original item.
-     */
-    private static final Set<DataComponentType> MANAGED_COMPONENTS = Set.of(
-            DataComponentTypes.CUSTOM_NAME,
-            DataComponentTypes.LORE,
-            DataComponentTypes.ENCHANTMENTS,
-            DataComponentTypes.ATTRIBUTE_MODIFIERS,
-            DataComponentTypes.EQUIPPABLE,
-            DataComponentTypes.CUSTOM_MODEL_DATA,
-            DataComponentTypes.ITEM_MODEL,
-            DataComponentTypes.DAMAGE,
-            DataComponentTypes.UNBREAKABLE,
-            DataComponentTypes.ENCHANTMENT_GLINT_OVERRIDE,
-            DataComponentTypes.TOOLTIP_DISPLAY
-    );
-
-    /**
-     * PDC keys owned by this plugin. These are overwritten during rebuild;
-     * all other PDC keys from the original are preserved.
-     */
-    private static final Set<String> OWNED_PDC_KEYS = Set.of(
-            "custom_item_id",
-            "item_version",
-            "custom_item_format",
-            "item_instance_uuid",
-            "model_backup",
-            "reaper_bonus_damage"
-    );
-
     public ItemIntegrityManager(JavaPlugin plugin, AdvancedCustomItemManager itemManager) {
         this.plugin = plugin;
         this.itemManager = itemManager;
 
         this.itemIdKey = itemManager.getItemIdKey();
-        this.versionKey = new NamespacedKey(plugin, "item_version");
-        this.formatKey = itemManager.getFormatKey();
+        this.versionKey = itemManager.getVersionKey();
         this.instanceUuidKey = new NamespacedKey(plugin, "item_instance_uuid");
-        this.modelBackupKey = itemManager.getModelBackupKey();
 
         loadConfig();
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
@@ -144,44 +104,30 @@ public class ItemIntegrityManager implements Listener {
         plugin.saveConfig();
     }
 
-    // ==================== EVENT HANDLERS: MODEL RESTORATION ====================
+    // ==================== MODEL RESTORATION EVENTS ====================
 
-    /**
-     * When any item spawns in the world, restore its item_model DataComponent
-     * if it was stripped during serialization. This is a lightweight in-place fix.
-     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onItemSpawn(ItemSpawnEvent event) {
         if (!enabled) return;
         restoreModel(event.getEntity().getItemStack());
     }
 
-    /**
-     * Player drop: fix model before the item entity is created.
-     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerDropItem(PlayerDropItemEvent event) {
         if (!enabled) return;
         restoreModel(event.getItemDrop().getItemStack());
     }
 
-    /**
-     * Hopper/container move: fix model after transfer.
-     */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onInventoryMoveItem(InventoryMoveItemEvent event) {
         if (!enabled) return;
         restoreModel(event.getItem());
     }
 
-    /**
-     * Restore the item_model DataComponent from the definition.
-     * Completely non-destructive: only touches ITEM_MODEL and modelBackup PDC.
-     */
     private void restoreModel(ItemStack item) {
         if (item == null || item.getType().isAir()) return;
 
-        String itemId = item.getPersistentDataContainer().get(itemIdKey, PersistentDataType.STRING);
+        String itemId = getItemId(item);
         if (itemId == null) return;
 
         AdvancedCustomItem definition = itemManager.getItem(itemId);
@@ -195,14 +141,10 @@ public class ItemIntegrityManager implements Listener {
 
         if (!expectedModel.equals(currentModel)) {
             item.setData(DataComponentTypes.ITEM_MODEL, expectedModel);
-            item.editPersistentDataContainer(container -> {
-                container.set(modelBackupKey, PersistentDataType.STRING,
-                        definedModel.getNamespace() + ":" + definedModel.getKey());
-            });
         }
     }
 
-    // ==================== EVENT HANDLERS: INVENTORY SCANS ====================
+    // ==================== INVENTORY SCAN EVENTS ====================
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerJoin(PlayerJoinEvent event) {
@@ -221,20 +163,14 @@ public class ItemIntegrityManager implements Listener {
         pendingScans.remove(event.getPlayer().getUniqueId());
     }
 
-    /**
-     * Schedule a debounced inventory scan for a player.
-     * Only one scan can be pending per player at a time.
-     */
     private void scheduleScan(Player player, long delayTicks) {
         if (player == null || !player.isOnline()) return;
 
         UUID playerId = player.getUniqueId();
-        if (!pendingScans.add(playerId)) return; // Already pending
+        if (!pendingScans.add(playerId)) return;
 
-        Runnable clearPending = () -> pendingScans.remove(playerId);
         FoliaScheduler.runEntityLater(
-                player,
-                plugin,
+                player, plugin,
                 () -> {
                     try {
                         if (player.isOnline()) {
@@ -244,17 +180,12 @@ public class ItemIntegrityManager implements Listener {
                         pendingScans.remove(playerId);
                     }
                 },
-                clearPending,
                 delayTicks
         );
     }
 
-    // ==================== PUBLIC API (used by CommandHandler) ====================
+    // ==================== PUBLIC API ====================
 
-    /**
-     * Refresh all online players' inventories.
-     * @return total number of items updated
-     */
     public int refreshAllPlayers() {
         if (!enabled) return 0;
         int total = 0;
@@ -264,20 +195,11 @@ public class ItemIntegrityManager implements Listener {
         return total;
     }
 
-    /**
-     * Refresh a single player's inventory.
-     * @return number of items updated
-     */
     public int refreshSinglePlayer(Player player) {
         if (!enabled || player == null || !player.isOnline()) return 0;
         return scanPlayerInventory(player);
     }
 
-    /**
-     * Purge all instances of a specific item ID from all online players,
-     * replacing them with broken placeholder items.
-     * @return number of items purged
-     */
     public int purgeItem(String itemId) {
         AdvancedCustomItem definition = itemManager.getItem(itemId);
         if (definition == null) return 0;
@@ -291,12 +213,8 @@ public class ItemIntegrityManager implements Listener {
         return purged;
     }
 
-    // ==================== CORE SCAN LOGIC ====================
+    // ==================== SCAN LOGIC ====================
 
-    /**
-     * Scan a player's entire inventory (main, armor, offhand, ender chest).
-     * @return number of items updated
-     */
     private int scanPlayerInventory(Player player) {
         if (!enabled || player == null || !player.isOnline()) return 0;
 
@@ -371,10 +289,6 @@ public class ItemIntegrityManager implements Listener {
         return updated;
     }
 
-    /**
-     * Process a single slot in an inventory array.
-     * @return true if the item was modified
-     */
     private boolean processSlot(ItemStack[] inventory, int index, Consumer<ItemStack> setter) {
         ItemStack item = inventory[index];
         if (item == null || item.getType().isAir()) return false;
@@ -388,17 +302,11 @@ public class ItemIntegrityManager implements Listener {
 
     /**
      * Check a single ItemStack and update it if necessary.
-     * Mutates the item in-place for disabled/lightweight fixes.
-     * Replaces the item (via the setter pattern in processSlot) for safe rebuilds.
-     *
-     * @param item the ItemStack to check (may be mutated in-place for some fixes)
-     * @return true if the item was modified
      */
     private boolean checkAndUpdateItem(ItemStack item) {
         if (item == null || item.getType().isAir()) return false;
 
-        // Quick PDC check
-        String itemId = item.getPersistentDataContainer().get(itemIdKey, PersistentDataType.STRING);
+        String itemId = getItemId(item);
         if (itemId == null) return false;
 
         AdvancedCustomItem definition = itemManager.getItem(itemId);
@@ -406,43 +314,26 @@ public class ItemIntegrityManager implements Listener {
 
         // --- Disabled items: replace with broken placeholder ---
         if (definition.isDisabled()) {
-            ItemStack broken = definition.buildBrokenReplacement();
-            broken.setAmount(item.getAmount());
-            item.setType(broken.getType());
-            item.setItemMeta(broken.getItemMeta());
-            // Clear PDC so future scans ignore this item
-            item.editPersistentDataContainer(container -> {
-                container.remove(itemIdKey);
-                container.remove(versionKey);
-                container.remove(formatKey);
-                container.remove(instanceUuidKey);
-                container.remove(modelBackupKey);
-            });
+            replaceWithBroken(item, definition);
             return true;
         }
 
-        // --- Read current stamps ---
+        // --- Read version stamp ---
         Long storedVersion = item.getPersistentDataContainer().get(versionKey, PersistentDataType.LONG);
-        Integer storedFormat = item.getPersistentDataContainer().get(formatKey, PersistentDataType.INTEGER);
         long currentVersion = definition.getVersion();
+
+        // --- Legacy migration: strip old baked lore ---
+        boolean strippedLore = stripLegacyLore(item);
 
         // --- Check what needs fixing ---
         boolean needsModelFix = checkModelNeedsFix(item, definition);
         boolean needsInstanceUuid = definition.shouldGetInstanceUuid()
                 && getInstanceUuid(item) == null;
-        boolean needsFormatUpgrade = storedFormat == null
-                || storedFormat < AdvancedCustomItemManager.CURRENT_ITEM_FORMAT;
         boolean definitionChanged = storedVersion == null || storedVersion < currentVersion;
 
-        // --- If everything is current, skip ---
-        if (!definitionChanged && !needsFormatUpgrade && !needsModelFix && !needsInstanceUuid) {
-            return false;
-        }
+        boolean modified = strippedLore;
 
-        // --- Apply fixes ---
-        boolean modified = false;
-
-        // Lightweight fixes first (no rebuild needed)
+        // Lightweight fixes
         if (needsModelFix && !definitionChanged) {
             applyModelFix(item, definition);
             modified = true;
@@ -451,32 +342,15 @@ public class ItemIntegrityManager implements Listener {
             itemManager.ensureInstanceUuid(item, definition);
             modified = true;
         }
-        if (needsFormatUpgrade && !definitionChanged) {
-            // Format-only upgrade: just bump the stamp, no rebuild
-            item.editPersistentDataContainer(container -> {
-                container.set(formatKey, PersistentDataType.INTEGER,
-                        AdvancedCustomItemManager.CURRENT_ITEM_FORMAT);
-            });
-            modified = true;
-        }
 
-        // Definition changed: need a full safe rebuild
+        // Gameplay-critical rebuild
         if (definitionChanged) {
-            performSafeRebuild(item, definition);
+            performGameplayRebuild(item, definition);
             modified = true;
         } else if (modified) {
-            // Update stamps for lightweight fixes
-            final boolean finalNeedsModelFix = needsModelFix;
+            // Update version stamp for lightweight fixes
             item.editPersistentDataContainer(container -> {
                 container.set(versionKey, PersistentDataType.LONG, currentVersion);
-                if (needsFormatUpgrade) {
-                    container.set(formatKey, PersistentDataType.INTEGER,
-                            AdvancedCustomItemManager.CURRENT_ITEM_FORMAT);
-                }
-                if (finalNeedsModelFix && definition.getItemModel() != null) {
-                    container.set(modelBackupKey, PersistentDataType.STRING,
-                            definition.getItemModel().getNamespace() + ":" + definition.getItemModel().getKey());
-                }
             });
         }
 
@@ -484,8 +358,37 @@ public class ItemIntegrityManager implements Listener {
     }
 
     /**
-     * Check if the item's model DataComponent needs restoration.
+     * Strip baked lore from legacy items (pre-migration).
      */
+    private boolean stripLegacyLore(ItemStack item) {
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) return false;
+
+        boolean hadLore = meta.hasLore() && meta.getLore() != null && !meta.getLore().isEmpty();
+        boolean hadOldKeys = false;
+
+        // Check for old PDC keys to clean up
+        var container = item.getPersistentDataContainer();
+        NamespacedKey oldModelBackup = new NamespacedKey(plugin, "model_backup");
+        NamespacedKey oldFormat = new NamespacedKey(plugin, "custom_item_format");
+
+        if (container.has(oldModelBackup, PersistentDataType.STRING)) {
+            item.editPersistentDataContainer(c -> c.remove(oldModelBackup));
+            hadOldKeys = true;
+        }
+        if (container.has(oldFormat, PersistentDataType.INTEGER)) {
+            item.editPersistentDataContainer(c -> c.remove(oldFormat));
+            hadOldKeys = true;
+        }
+
+        if (hadLore) {
+            meta.setLore(null);
+            item.setItemMeta(meta);
+        }
+
+        return hadLore || hadOldKeys;
+    }
+
     private boolean checkModelNeedsFix(ItemStack item, AdvancedCustomItem definition) {
         NamespacedKey definedModel = definition.getItemModel();
         if (definedModel == null) return false;
@@ -495,41 +398,44 @@ public class ItemIntegrityManager implements Listener {
         return !expected.equals(current);
     }
 
-    /**
-     * Apply model fix in-place (no rebuild).
-     */
     private void applyModelFix(ItemStack item, AdvancedCustomItem definition) {
         NamespacedKey definedModel = definition.getItemModel();
         if (definedModel == null) return;
 
         Key model = Key.key(definedModel.getNamespace(), definedModel.getKey());
         item.setData(DataComponentTypes.ITEM_MODEL, model);
+    }
+
+    /**
+     * Replace an item with its broken placeholder.
+     */
+    private void replaceWithBroken(ItemStack item, AdvancedCustomItem definition) {
+        ItemStack broken = definition.buildBrokenReplacement();
+        broken.setAmount(item.getAmount());
+
+        // Copy all data from broken to item
+        item.setType(broken.getType());
+        item.setItemMeta(broken.getItemMeta());
+
+        // Clear PDC so future scans ignore this item
         item.editPersistentDataContainer(container -> {
-            container.set(modelBackupKey, PersistentDataType.STRING,
-                    definedModel.getNamespace() + ":" + definedModel.getKey());
+            container.remove(itemIdKey);
+            container.remove(versionKey);
+            container.remove(instanceUuidKey);
         });
     }
 
-    // ==================== SAFE REBUILD ====================
+    // ==================== GAMEPLAY REBUILD ====================
 
     /**
-     * Perform a safe rebuild when the definition version has changed.
-     *
-     * Builds a fresh item from the definition, then copies ALL unmanaged
-     * DataComponents and non-plugin PDC keys from the original item.
-     * Player-applied modifications (durability, anvil enchants, renamed items)
-     * are preserved by checking against the fresh definition's values.
-     *
-     * NEVER calls setItemMeta() on the original item — only on the fresh build
-     * before the component-level merge.
-     *
-     * Mutates the item parameter in-place.
+     * Rebuild gameplay-critical components from the current definition.
+     * Does NOT touch lore (which is packet-injected).
      */
-    private void performSafeRebuild(ItemStack item, AdvancedCustomItem definition) {
-        // 1. Build fresh item from current definition
+    private void performGameplayRebuild(ItemStack item, AdvancedCustomItem definition) {
+        // Build fresh item from current definition
         ItemStack fresh = itemManager.buildItem(definition);
 
-        // 2. Preserve player-applied durability (only if definition sets a specific damage)
+        // Preserve player-applied durability
         ItemMeta originalMeta = item.getItemMeta();
         ItemMeta freshMeta = fresh.getItemMeta();
         if (originalMeta instanceof Damageable origDamageable
@@ -537,23 +443,19 @@ public class ItemIntegrityManager implements Listener {
                 && item.getType().getMaxDurability() > 0) {
             int originalDamage = origDamageable.getDamage();
             int freshDamage = freshDamageable.getDamage();
-            // If the player's item has more damage than the fresh definition,
-            // keep the player's damage value (they've been using the item)
             if (originalDamage > freshDamage) {
                 freshDamageable.setDamage(originalDamage);
                 fresh.setItemMeta(freshMeta);
             }
         }
 
-        // 3. Preserve player-applied enchantments (from anvils/enchanting tables)
+        // Preserve player-applied enchantments (from anvils/enchanting tables)
         if (originalMeta != null && freshMeta != null) {
-            Map<org.bukkit.enchantments.Enchantment, Integer> freshEnchants = new HashMap<>(freshMeta.getEnchants());
-            Map<org.bukkit.enchantments.Enchantment, Integer> originalEnchants = originalMeta.getEnchants();
+            Map<Enchantment, Integer> freshEnchants = new HashMap<>(freshMeta.getEnchants());
+            Map<Enchantment, Integer> originalEnchants = originalMeta.getEnchants();
 
-            for (Map.Entry<org.bukkit.enchantments.Enchantment, Integer> entry : originalEnchants.entrySet()) {
+            for (Map.Entry<Enchantment, Integer> entry : originalEnchants.entrySet()) {
                 Integer freshLevel = freshEnchants.get(entry.getKey());
-                // If the original has an enchant not in the definition, or at a higher level,
-                // preserve the player's value
                 if (freshLevel == null || entry.getValue() > freshLevel) {
                     freshMeta.addEnchant(entry.getKey(), entry.getValue(), true);
                 }
@@ -561,53 +463,33 @@ public class ItemIntegrityManager implements Listener {
             fresh.setItemMeta(freshMeta);
         }
 
-        // 4. Copy ALL unmanaged DataComponents from original to fresh
-        //    Only MANAGED_COMPONENTS come from the fresh build;
-        //    everything else (container data, bundle contents, etc.) comes from the original
-        fresh.copyDataFrom(item, type -> !MANAGED_COMPONENTS.contains(type));
-
-        // 5. Copy all non-plugin PDC keys from original, then overwrite with fresh's plugin keys
-        fresh.editPersistentDataContainer(freshContainer -> {
-            // First, copy all original PDC entries that we don't own
-            item.getPersistentDataContainer().copyTo(freshContainer, false);
-            // Then overwrite our owned keys with fresh values
-            itemManager.buildItem(definition).getPersistentDataContainer().copyTo(freshContainer, true);
-            // Ensure correct version and format stamps
-            freshContainer.set(versionKey, PersistentDataType.LONG, definition.getVersion());
-            freshContainer.set(formatKey, PersistentDataType.INTEGER,
-                    AdvancedCustomItemManager.CURRENT_ITEM_FORMAT);
-        });
-
-        // 6. Transfer instance UUID if the original had one
+        // Preserve instance UUID
         String originalUuid = getInstanceUuid(item);
         if (originalUuid != null) {
             fresh.editPersistentDataContainer(container -> {
                 container.set(instanceUuidKey, PersistentDataType.STRING, originalUuid);
             });
-        } else {
-            itemManager.ensureInstanceUuid(fresh, definition);
         }
 
-        // 7. Preserve amount
+        // Preserve amount
         fresh.setAmount(item.getAmount());
 
-        // 8. Replace the original item's data with the merged fresh data
+        // Replace item data
         replaceItemData(item, fresh);
     }
 
     /**
      * Replace all data on the target item with data from the source item.
-     * This is a component-level operation that avoids setItemMeta on the target.
      */
     private void replaceItemData(ItemStack target, ItemStack source) {
         // Remove all components from target that aren't on source
-        for (DataComponentType type : new HashSet<>(target.getDataTypes())) {
+        for (var type : new HashSet<>(target.getDataTypes())) {
             if (!source.hasData(type)) {
                 target.unsetData(type);
             }
         }
         // Copy all components from source
-        target.copyDataFrom(source, type -> true);
+        target.copyDataFrom(source, t -> true);
         // Copy PDC
         target.editPersistentDataContainer(container -> {
             source.getPersistentDataContainer().copyTo(container, true);
@@ -619,10 +501,6 @@ public class ItemIntegrityManager implements Listener {
 
     // ==================== LEGACY STACK SPLITTING ====================
 
-    /**
-     * Split legacy stacks of category items (>1 amount) into individual
-     * non-stackable copies with unique instance UUIDs.
-     */
     private boolean splitLegacyStack(Player player, ItemStack stack,
                                      Consumer<ItemStack> setter,
                                      Inventory preferredInventory) {
@@ -673,9 +551,8 @@ public class ItemIntegrityManager implements Listener {
         ItemStack[] contents = inv.getContents();
         for (int i = 0; i < contents.length; i++) {
             ItemStack item = contents[i];
-            if (item != null && item.hasItemMeta()) {
-                String storedId = item.getItemMeta().getPersistentDataContainer()
-                        .get(itemIdKey, PersistentDataType.STRING);
+            if (item != null) {
+                String storedId = getItemId(item);
                 if (itemId.equals(storedId)) {
                     ItemStack replacement = brokenPlaceholder.clone();
                     replacement.setAmount(item.getAmount());
@@ -693,9 +570,8 @@ public class ItemIntegrityManager implements Listener {
         boolean changed = false;
         for (int i = 0; i < armor.length; i++) {
             ItemStack item = armor[i];
-            if (item != null && item.hasItemMeta()) {
-                String storedId = item.getItemMeta().getPersistentDataContainer()
-                        .get(itemIdKey, PersistentDataType.STRING);
+            if (item != null) {
+                String storedId = getItemId(item);
                 if (itemId.equals(storedId)) {
                     armor[i] = brokenPlaceholder.clone();
                     count++;
@@ -708,9 +584,8 @@ public class ItemIntegrityManager implements Listener {
         }
 
         ItemStack offhand = player.getInventory().getItemInOffHand();
-        if (offhand != null && offhand.hasItemMeta()) {
-            String storedId = offhand.getItemMeta().getPersistentDataContainer()
-                    .get(itemIdKey, PersistentDataType.STRING);
+        if (offhand != null) {
+            String storedId = getItemId(offhand);
             if (itemId.equals(storedId)) {
                 player.getInventory().setItemInOffHand(brokenPlaceholder.clone());
                 count++;
@@ -724,9 +599,8 @@ public class ItemIntegrityManager implements Listener {
         ItemStack[] contents = player.getEnderChest().getContents();
         for (int i = 0; i < contents.length; i++) {
             ItemStack item = contents[i];
-            if (item != null && item.hasItemMeta()) {
-                String storedId = item.getItemMeta().getPersistentDataContainer()
-                        .get(itemIdKey, PersistentDataType.STRING);
+            if (item != null) {
+                String storedId = getItemId(item);
                 if (itemId.equals(storedId)) {
                     ItemStack replacement = brokenPlaceholder.clone();
                     replacement.setAmount(item.getAmount());
@@ -740,8 +614,13 @@ public class ItemIntegrityManager implements Listener {
 
     // ==================== UTILITY ====================
 
+    private String getItemId(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return null;
+        return item.getItemMeta().getPersistentDataContainer().get(itemIdKey, PersistentDataType.STRING);
+    }
+
     private String getInstanceUuid(ItemStack item) {
-        if (item == null) return null;
-        return item.getPersistentDataContainer().get(instanceUuidKey, PersistentDataType.STRING);
+        if (item == null || !item.hasItemMeta()) return null;
+        return item.getItemMeta().getPersistentDataContainer().get(instanceUuidKey, PersistentDataType.STRING);
     }
 }

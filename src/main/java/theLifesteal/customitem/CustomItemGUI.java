@@ -32,6 +32,7 @@ public class CustomItemGUI {
     private final Map<UUID, Integer> categoryPage;
     private ItemAbilityGUI abilityGUI;
     private CustomEnchantGUI enchantGUI;
+    private ItemDisplayPacketListener packetListener;
 
     private static final String MAIN_TITLE = "&5✦ &dItem Creator &5✦";
     private static final int ITEMS_PER_PAGE = 28;
@@ -103,6 +104,7 @@ public class CustomItemGUI {
 
     public void setAbilityGUI(ItemAbilityGUI abilityGUI) { this.abilityGUI = abilityGUI; }
     public void setEnchantGUI(CustomEnchantGUI enchantGUI) { this.enchantGUI = enchantGUI; }
+    public void setPacketListener(ItemDisplayPacketListener packetListener) { this.packetListener = packetListener; }
 
     public void openMainMenu(Player player) {
         pageCache.put(player.getUniqueId(), 0);
@@ -176,6 +178,7 @@ public class CustomItemGUI {
                 else if (key.equals("damage")) { try { ses.item.setDamage(Math.max(0, Integer.parseInt(message))); player.sendMessage(ColorUtils.colorize("&aDurability set.")); } catch (NumberFormatException e) { player.sendMessage(ColorUtils.colorize("&cInvalid.")); } }
             }
         }
+        invalidateCache(ses);
         if (back != null) back.run(); else openMainMenu(player);
     }
 
@@ -215,6 +218,15 @@ public class CustomItemGUI {
         potionBrowserPage.remove(uuid); rarityPage.remove(uuid); categoryPage.remove(uuid);
         if (abilityGUI != null) abilityGUI.cleanupPlayer(uuid);
         if (enchantGUI != null) enchantGUI.cleanupPlayer(uuid);
+    }
+
+    /**
+     * Invalidates the packet lore cache for the item being edited.
+     */
+    private void invalidateCache(EditingSession ses) {
+        if (packetListener != null && ses != null && ses.item != null) {
+            packetListener.invalidateCache(ses.item.getId());
+        }
     }
 
     // ==================== GUI BUILDERS ====================
@@ -427,7 +439,6 @@ public class CustomItemGUI {
     private Inventory buildArmorPieceSelector(Player player) {
         EditingSession ses = sessions.get(player.getUniqueId());
         if (ses == null) return buildMainGUI(player);
-
         Inventory gui = Bukkit.createInventory(null, 27,
                 net.kyori.adventure.text.Component.text(ColorUtils.colorize("&6Select Armor Piece")));
         filler(gui);
@@ -517,7 +528,7 @@ public class CustomItemGUI {
             case 33 -> { inTransition.add(p.getUniqueId()); p.openInventory(buildCategorySelector(p)); }
             case 34 -> { inTransition.add(p.getUniqueId()); p.openInventory(buildRaritySelector(p)); }
             case 39 -> { if (abilityGUI != null) { inTransition.add(p.getUniqueId()); p.closeInventory(); FoliaScheduler.runEntityLater(p, plugin, () -> abilityGUI.openAbilitiesMenu(p, ses.item, () -> p.openInventory(buildEditMain(p))), 2L); } }
-            case 40 -> { ses.item.setDisabled(!ses.item.isDisabled()); inTransition.add(p.getUniqueId()); p.openInventory(buildEditMain(p)); }
+            case 40 -> { ses.item.setDisabled(!ses.item.isDisabled()); invalidateCache(ses); inTransition.add(p.getUniqueId()); p.openInventory(buildEditMain(p)); }
             case 41 -> { if (AdvancedCustomItem.isArmorCategory(ses.item.getCategory())) { inTransition.add(p.getUniqueId()); p.openInventory(buildArmorPieceSelector(p)); } }
             case 49 -> commitAndExit(p, true);
             case 50 -> { sessions.remove(p.getUniqueId()); p.closeInventory(); openMainMenu(p); }
@@ -533,7 +544,7 @@ public class CustomItemGUI {
         if (slot == 53) { inTransition.add(p.getUniqueId()); p.openInventory(buildEditMain(p)); return; }
         List<String> lore = ses.item.getLore();
         int[] ls = {19,20,21,22,23,24,25,28,29,30,31,32,33,34,37,38,39,40,41,42,43,10,11,12,14,15,16};
-        for (int i=0;i<ls.length;i++){if(slot==ls[i]&&i<lore.size()){if(click.isLeftClick())startChatInput(p,"lore_edit:"+i,()->p.openInventory(buildNameLore(p)));else if(click.isRightClick()){lore.remove(i);ses.item.setLore(lore);p.openInventory(buildNameLore(p));}return;}}
+        for (int i=0;i<ls.length;i++){if(slot==ls[i]&&i<lore.size()){if(click.isLeftClick())startChatInput(p,"lore_edit:"+i,()->p.openInventory(buildNameLore(p)));else if(click.isRightClick()){lore.remove(i);ses.item.setLore(lore);invalidateCache(ses);p.openInventory(buildNameLore(p));}return;}}
     }
 
     private void attrClick(Player p, int slot) {
@@ -560,6 +571,7 @@ public class CustomItemGUI {
                 return;
             }
             ses.item.toggleFlag(all[i]);
+            invalidateCache(ses);
             inTransition.add(p.getUniqueId());
             p.openInventory(buildFlags(p));
             return;
@@ -573,7 +585,7 @@ public class CustomItemGUI {
         if (slot == 53) { inTransition.add(p.getUniqueId()); p.openInventory(buildEditMain(p)); return; }
         int[] es = {10,11,12,13,14,15,16,19,20,21,22,23,24,25,28,29,30,31,32,33,34,37,38,39,40,41,42,43};
         List<AdvancedCustomItem.PotionEffectData> effs = ses.item.getPotionEffects();
-        for (int i=0;i<es.length;i++){if(slot==es[i]&&i<effs.size()&&click.isRightClick()){ses.item.removePotionEffect(i);inTransition.add(p.getUniqueId());p.openInventory(buildPotionEffects(p));return;}}
+        for (int i=0;i<es.length;i++){if(slot==es[i]&&i<effs.size()&&click.isRightClick()){ses.item.removePotionEffect(i);invalidateCache(ses);inTransition.add(p.getUniqueId());p.openInventory(buildPotionEffects(p));return;}}
     }
 
     private void potionBrowserClick(Player p, int slot, ClickType click) {
@@ -601,7 +613,7 @@ public class CustomItemGUI {
         EditingSession ses = sessions.get(p.getUniqueId());
         if(ses==null||ses.tempPotionType==null)return;
         if(slot==22){ses.tempPotionType=null;inTransition.add(p.getUniqueId());p.openInventory(buildPotionEffects(p));return;}
-        if(slot==11||slot==15){ses.item.addPotionEffect(new AdvancedCustomItem.PotionEffectData(ses.tempPotionType,ses.tempPotionAmplifier,slot==11));ses.tempPotionType=null;ses.tempPotionAmplifier=0;p.sendMessage(ColorUtils.colorize("&a✔ Potion effect added!"));inTransition.add(p.getUniqueId());p.openInventory(buildPotionEffects(p));}
+        if(slot==11||slot==15){ses.item.addPotionEffect(new AdvancedCustomItem.PotionEffectData(ses.tempPotionType,ses.tempPotionAmplifier,slot==11));ses.tempPotionType=null;ses.tempPotionAmplifier=0;invalidateCache(ses);p.sendMessage(ColorUtils.colorize("&a✔ Potion effect added!"));inTransition.add(p.getUniqueId());p.openInventory(buildPotionEffects(p));}
     }
 
     private void categoryClick(Player p, int slot, ClickType click) {
@@ -611,7 +623,6 @@ public class CustomItemGUI {
             if(slot!=cs[i]) continue;
             EditingSession ses=sessions.get(p.getUniqueId());
             if(ses==null) return;
-
             String category = cats.get(i);
             ses.item.setCategory(category);
             if (AdvancedCustomItem.isNonStackableCategory(category)) {
@@ -619,12 +630,13 @@ public class CustomItemGUI {
             }
             if (AdvancedCustomItem.isArmorCategory(category)) {
                 p.sendMessage(ColorUtils.colorize("&aArmor selected. Choose its wearable piece."));
+                invalidateCache(ses);
                 inTransition.add(p.getUniqueId());
                 p.openInventory(buildArmorPieceSelector(p));
                 return;
             }
-
             ses.item.setArmorPiece(null);
+            invalidateCache(ses);
             p.sendMessage(ColorUtils.colorize("&aCategory set to &b"+category));
             inTransition.add(p.getUniqueId());
             p.openInventory(buildEditMain(p));
@@ -636,12 +648,12 @@ public class CustomItemGUI {
         EditingSession ses = sessions.get(p.getUniqueId());
         if (ses == null) return;
         if (slot == 22) { inTransition.add(p.getUniqueId()); p.openInventory(buildEditMain(p)); return; }
-
         ArmorPiece[] pieces = ArmorPiece.values();
         int[] slots = {10, 12, 14, 16};
         for (int i = 0; i < pieces.length; i++) {
             if (slot != slots[i]) continue;
             ses.item.setArmorPiece(pieces[i]);
+            invalidateCache(ses);
             p.sendMessage(ColorUtils.colorize("&aArmor piece set to &b" + pieces[i].getDisplayName()));
             inTransition.add(p.getUniqueId());
             p.openInventory(buildEditMain(p));
@@ -652,7 +664,7 @@ public class CustomItemGUI {
     private void rarityClick(Player p, int slot, ClickType click) {
         if(slot==22){inTransition.add(p.getUniqueId());p.openInventory(buildEditMain(p));return;}
         ItemLoreBuilder.Rarity[] rarities=ItemLoreBuilder.Rarity.values();int[]rs={10,11,12,13,14,15,16};
-        for(int i=0;i<rs.length&&i<rarities.length;i++){if(slot==rs[i]){EditingSession ses=sessions.get(p.getUniqueId());if(ses!=null){ses.item.setRarity(rarities[i]);p.sendMessage(ColorUtils.colorize("&aRarity set to "+rarities[i].getColorCode()+rarities[i].getDisplayName()));}inTransition.add(p.getUniqueId());p.openInventory(buildEditMain(p));return;}}
+        for(int i=0;i<rs.length&&i<rarities.length;i++){if(slot==rs[i]){EditingSession ses=sessions.get(p.getUniqueId());if(ses!=null){ses.item.setRarity(rarities[i]);invalidateCache(ses);p.sendMessage(ColorUtils.colorize("&aRarity set to "+rarities[i].getColorCode()+rarities[i].getDisplayName()));}inTransition.add(p.getUniqueId());p.openInventory(buildEditMain(p));return;}}
     }
 
     private void previewClick(Player p, int slot) { if(slot==53){inTransition.add(p.getUniqueId());p.openInventory(buildNameLore(p));} }
@@ -681,6 +693,7 @@ public class CustomItemGUI {
             original.setEnchants(ses.item.getEnchants()); original.setDisabled(ses.item.isDisabled());
             manager.bumpVersion(ses.item.getId());
             manager.saveItems();
+            // Cache already invalidated by bumpVersion() which calls packetListener.invalidateCache()
         }
         sessions.remove(player.getUniqueId()); chatInput.remove(player.getUniqueId());
         returnAction.remove(player.getUniqueId()); inTransition.remove(player.getUniqueId());

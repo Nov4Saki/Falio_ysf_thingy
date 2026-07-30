@@ -3,6 +3,7 @@ version: 2.0.0
 main: theLifesteal.TheLifesteal
 api-version: 1.21
 folia-supported: true
+depend: [packetevents]
 description: A modern lifesteal plugin with custom crafting system
 author: _Ysf
 
@@ -28,16 +29,15 @@ commands:
     aliases: [getbook, book]
     permission: thelifesteal.admin
   customitem:
-      description: Open the advanced custom item creation GUI
-      usage: /<command>
-      aliases: [ ci, customitems, citem ]
-      permission: thelifesteal.admin
-
+    description: Open the advanced custom item creation GUI
+    usage: /<command>
+    aliases: [ci, customitems, citem]
+    permission: thelifesteal.admin
   reloaditems:
-      description: Refresh custom items for players
-      usage: /<command> [player] [enable|disable|onjoin|onworldchange]
-      aliases: [ ri, refreshitems, itemupdate ]
-      permission: thelifesteal.admin
+    description: Refresh custom items for players
+    usage: /<command> [player] [enable|disable|onjoin|onworldchange]
+    aliases: [ri, refreshitems, itemupdate]
+    permission: thelifesteal.admin
 
 permissions:
   thelifesteal.withdraw:

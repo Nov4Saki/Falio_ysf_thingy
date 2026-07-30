@@ -67,7 +67,7 @@ public final class ItemComponentUtil {
      * Apply a metadata edit while preserving all non-ItemMeta components.
      */
     public static boolean editMetaPreservingComponents(ItemStack item,
-                                                        Consumer<ItemMeta> editor) {
+                                                       Consumer<ItemMeta> editor) {
         if (item == null || editor == null) return false;
 
         ItemStack before = item.clone();

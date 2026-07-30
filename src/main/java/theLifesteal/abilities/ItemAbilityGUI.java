@@ -10,6 +10,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 import theLifesteal.ColorUtils;
 import theLifesteal.customitem.AdvancedCustomItem;
+import theLifesteal.customitem.ItemDisplayPacketListener;
 
 import java.util.*;
 
@@ -22,6 +23,7 @@ public class ItemAbilityGUI {
     private final Map<UUID, Runnable> returnAction;
     private final Map<UUID, Boolean> inTransition;
     private final Map<UUID, Integer> browserPage;
+    private ItemDisplayPacketListener packetListener;
 
     public ItemAbilityGUI(JavaPlugin plugin, ItemAbilityManager abilityManager) {
         this.plugin = plugin;
@@ -31,6 +33,10 @@ public class ItemAbilityGUI {
         this.returnAction = new HashMap<>();
         this.inTransition = new HashMap<>();
         this.browserPage = new HashMap<>();
+    }
+
+    public void setPacketListener(ItemDisplayPacketListener packetListener) {
+        this.packetListener = packetListener;
     }
 
     public boolean isAbilityGUI(String title) {
@@ -116,6 +122,8 @@ public class ItemAbilityGUI {
                     break;
             }
             player.sendMessage(ColorUtils.colorize("&aValue updated!"));
+            // Invalidate lore cache since ability config changed
+            invalidateItemCache(ses);
         } catch (NumberFormatException e) {
             player.sendMessage(ColorUtils.colorize("&cInvalid number!"));
         }
@@ -362,6 +370,7 @@ public class ItemAbilityGUI {
                     if (i < onHitList.size()) {
                         if (click.isRightClick()) {
                             onHitList.remove(i);
+                            invalidateItemCache(ses);
                             inTransition.put(player.getUniqueId(), true);
                             player.openInventory(buildAbilitiesMenu(player));
                         } else {
@@ -386,6 +395,7 @@ public class ItemAbilityGUI {
                     if (i < passiveList.size()) {
                         if (click.isRightClick()) {
                             passiveList.remove(i);
+                            invalidateItemCache(ses);
                             inTransition.put(player.getUniqueId(), true);
                             player.openInventory(buildAbilitiesMenu(player));
                         } else {
@@ -418,6 +428,7 @@ public class ItemAbilityGUI {
         } else {
             if (click.isRightClick()) {
                 list.clear();
+                invalidateItemCache(ses);
                 inTransition.put(player.getUniqueId(), true);
                 player.openInventory(buildAbilitiesMenu(player));
             } else {
@@ -473,7 +484,6 @@ public class ItemAbilityGUI {
                     if (alreadyUsed) break;
                 }
 
-                // Allow same ability in different slots (RIGHT_CLICK and SHIFT_RIGHT_CLICK are separate)
                 // Only block if it's already in the SAME type slot
                 List<ItemAbilityData> existingInType = ses.item.getAbilities().get(ses.browsingType);
                 boolean alreadyInThisSlot = false;
@@ -491,6 +501,9 @@ public class ItemAbilityGUI {
                 ItemAbilityData data = new ItemAbilityData(ability.getId(), ses.browsingType);
                 data.setConfig(new LinkedHashMap<>(ability.getDefaultConfig()));
                 ses.item.getAbilities().get(ses.browsingType).add(data);
+
+                // Invalidate lore cache since abilities changed
+                invalidateItemCache(ses);
 
                 player.sendMessage(ColorUtils.colorize("&a✔ Ability added: " + ability.getDisplayName()));
                 inTransition.put(player.getUniqueId(), true);
@@ -527,6 +540,7 @@ public class ItemAbilityGUI {
                 if (field.getType().equals("boolean")) {
                     boolean current = ses.editingData.getConfigBoolean(key);
                     ses.editingData.setConfigValue(key, !current);
+                    invalidateItemCache(ses);
                     inTransition.put(player.getUniqueId(), true);
                     player.openInventory(buildConfigEditor(player, ses.editingData));
                 } else {
@@ -548,6 +562,16 @@ public class ItemAbilityGUI {
         AbilityEditSession ses = sessions.get(player.getUniqueId());
         if (ses != null) {
             player.openInventory(buildAbilitiesMenu(player));
+        }
+    }
+
+    /**
+     * Invalidates the lore cache for the item being edited so the packet
+     * interceptor picks up the changes immediately.
+     */
+    private void invalidateItemCache(AbilityEditSession ses) {
+        if (packetListener != null && ses != null && ses.item != null) {
+            packetListener.invalidateCache(ses.item.getId());
         }
     }
 

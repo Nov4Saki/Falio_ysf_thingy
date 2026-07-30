@@ -22,6 +22,7 @@ public class CustomEnchantGUI {
     private final Map<UUID, Runnable> returnAction;
     private final Map<UUID, Boolean> inTransition;
     private final Map<UUID, Integer> browserPage;
+    private ItemDisplayPacketListener packetListener;
 
     private static final List<Enchantment> ALL_ENCHANTMENTS;
 
@@ -42,6 +43,10 @@ public class CustomEnchantGUI {
         this.returnAction = new HashMap<>();
         this.inTransition = new HashMap<>();
         this.browserPage = new HashMap<>();
+    }
+
+    public void setPacketListener(ItemDisplayPacketListener packetListener) {
+        this.packetListener = packetListener;
     }
 
     public boolean isEnchantGUI(String title) {
@@ -93,6 +98,8 @@ public class CustomEnchantGUI {
             }
             ses.item.getEnchants().put(ses.selectedEnchant, level);
             ses.selectedEnchant = null;
+            // Invalidate lore cache since enchants changed
+            invalidateItemCache(ses);
             player.sendMessage(ColorUtils.colorize("&a✔ Enchantment added!"));
         } catch (NumberFormatException e) {
             player.sendMessage(ColorUtils.colorize("&cInvalid number!"));
@@ -260,6 +267,8 @@ public class CustomEnchantGUI {
             if (idx >= slots.length) break;
             if (slot == slots[idx] && click.isRightClick()) {
                 enchants.remove(ench);
+                // Invalidate lore cache since enchantments changed
+                invalidateItemCache(ses);
                 inTransition.put(player.getUniqueId(), true);
                 player.openInventory(buildEnchantMenu(player));
                 return;
@@ -341,6 +350,8 @@ public class CustomEnchantGUI {
                 enchants.put(ses.selectedEnchant, i + 1);
                 ses.item.setEnchants(enchants);
                 ses.selectedEnchant = null;
+                // Invalidate lore cache since enchantments changed
+                invalidateItemCache(ses);
                 player.sendMessage(ColorUtils.colorize("&a✔ Enchantment added!"));
                 inTransition.put(player.getUniqueId(), true);
                 player.openInventory(buildEnchantMenu(player));
@@ -353,6 +364,16 @@ public class CustomEnchantGUI {
         EnchantSession ses = sessions.get(player.getUniqueId());
         if (ses != null) {
             player.openInventory(buildEnchantMenu(player));
+        }
+    }
+
+    /**
+     * Invalidates the lore cache for the item being edited so the packet
+     * interceptor picks up the changes immediately.
+     */
+    private void invalidateItemCache(EnchantSession ses) {
+        if (packetListener != null && ses != null && ses.item != null) {
+            packetListener.invalidateCache(ses.item.getId());
         }
     }
 
