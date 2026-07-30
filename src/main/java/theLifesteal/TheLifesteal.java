@@ -15,7 +15,6 @@ import theLifesteal.customitem.CustomItemListener;
 import theLifesteal.customitem.CustomItemRestrictionListener;
 import theLifesteal.customitem.CustomItemEffectListener;
 import theLifesteal.customitem.ItemIntegrityManager;
-import theLifesteal.customitem.ItemDisplayPacketListener;
 
 import java.util.UUID;
 import java.util.logging.Level;
@@ -51,9 +50,6 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
     private ItemAbilityListener abilityListener;
     private TotemProtectionManager totemProtectionManager;
 
-    // Packet interceptor for lore injection
-    private ItemDisplayPacketListener packetListener;
-
     @Override
     public void onEnable() {
         instance = this;
@@ -73,15 +69,10 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         this.customItemManager = new CustomItemManager(this);
         this.advancedItemManager = new AdvancedCustomItemManager(this);
         this.advancedItemManager.setAbilityManager(abilityManager);
-
-        // Packet interceptor for lore injection — MUST be created before loading items
-        // so the packetListener reference is available for cache invalidation
-        this.packetListener = new ItemDisplayPacketListener(advancedItemManager, abilityManager);
-        this.packetListener.register();
-        this.advancedItemManager.setPacketListener(packetListener);
-
         this.advancedItemManager.loadItems();
         advancedItemManager.registerDefaultItems(getConfig());
+
+        // Unified item integrity manager (replaces ItemUpdateManager + ItemModelPreservationListener)
         this.itemIntegrityManager = new ItemIntegrityManager(this, advancedItemManager);
 
         this.customItemGUI = new CustomItemGUI(this, advancedItemManager);
@@ -90,11 +81,6 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
 
         this.customEnchantGUI = new CustomEnchantGUI(this);
         this.customItemGUI.setEnchantGUI(customEnchantGUI);
-
-        // Wire cache invalidation into the GUIs
-        this.customItemGUI.setPacketListener(packetListener);
-        this.abilityGUI.setPacketListener(packetListener);
-        this.customEnchantGUI.setPacketListener(packetListener);
 
         this.customItemListener = new CustomItemListener(this, customItemGUI, abilityGUI);
         getServer().getPluginManager().registerEvents(customItemListener, this);
@@ -112,7 +98,6 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         getLogger().info("§a✓ Item Ability System initialized");
         getLogger().info("§a✓ Custom Enchant System initialized");
         getLogger().info("§a⟳ §eItem Integrity System loaded! §a⟳");
-        getLogger().info("§a⟳ §ePacket Lore Injection System loaded! §a⟳");
 
         // Register listeners
         this.deathListener = new DeathListener(this);
@@ -154,7 +139,6 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         getLogger().log(Level.INFO, "§d🧪 §ePotion Effects System loaded! §d🧪");
         getLogger().log(Level.INFO, "§6✨ §eAbility System loaded! §6✨");
         getLogger().log(Level.INFO, "§5✨ §eEnchant System loaded! §5✨");
-        getLogger().log(Level.INFO, "§3📡 §ePacket Lore Injection loaded! §3📡");
     }
 
     private void registerAbilities() {
@@ -233,7 +217,6 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
     public ItemAbilityGUI getAbilityGUI() { return abilityGUI; }
     public TotemProtectionManager getTotemProtectionManager() { return totemProtectionManager; }
     public ItemIntegrityManager getItemIntegrityManager() { return itemIntegrityManager; }
-    public ItemDisplayPacketListener getPacketListener() { return packetListener; }
 
     @Override
     public void onDisable() {
@@ -243,11 +226,6 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         if (abilityManager != null) {
             CriticalStrikeAbility critAbility = (CriticalStrikeAbility) abilityManager.getAbility("critical_strike");
             if (critAbility != null) critAbility.cleanup();
-        }
-        if (packetListener != null) {
-            try {
-                com.github.retrooper.packetevents.PacketEvents.getAPI().getEventManager().unregisterListener(packetListener);
-            } catch (Exception ignored) {}
         }
         getLogger().log(Level.INFO, "§c❤ §eLifesteal Plugin disabled. Goodbye! §c❤");
     }

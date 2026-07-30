@@ -1,6 +1,5 @@
 package theLifesteal;
 
-import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -91,18 +90,6 @@ public class CommandHandler implements CommandExecutor, TabCompleter {
                 String itemId = args[1];
                 int purged = integrityManager.purgeItem(itemId);
                 sender.sendMessage(ColorUtils.colorize("&c🗑 Purged &4" + purged + " &cinstances of &f" + itemId + "&c."));
-            }
-            case "invalidatecache" -> {
-                // New command to force-refresh packet lore cache
-                var packetListener = plugin.getPacketListener();
-                if (packetListener == null) { sender.sendMessage(ColorUtils.colorize("&cPacket listener not available.")); return true; }
-                if (args.length < 2) {
-                    packetListener.invalidateAllCache();
-                    sender.sendMessage(ColorUtils.colorize("&a⟳ All lore cache invalidated. &7(Will rebuild on next packet send)"));
-                } else {
-                    packetListener.invalidateCache(args[1]);
-                    sender.sendMessage(ColorUtils.colorize("&a⟳ Lore cache invalidated for &f" + args[1]));
-                }
             }
             default -> {
                 Player target = plugin.getServer().getPlayer(args[0]);
@@ -201,11 +188,7 @@ public class CommandHandler implements CommandExecutor, TabCompleter {
                     completions.addAll(plugin.getServer().getOnlinePlayers().stream().map(Player::getName).collect(Collectors.toList()));
                     completions.add("enable"); completions.add("disable"); completions.add("onjoin");
                     completions.add("onworldchange"); completions.add("status"); completions.add("purge");
-                    completions.add("invalidatecache");
                 } else if (args.length == 2 && args[0].equalsIgnoreCase("purge")) {
-                    var manager = plugin.getAdvancedItemManager();
-                    if (manager != null) completions.addAll(manager.getAllItems().stream().map(i -> i.getId()).collect(Collectors.toList()));
-                } else if (args.length == 2 && args[0].equalsIgnoreCase("invalidatecache")) {
                     var manager = plugin.getAdvancedItemManager();
                     if (manager != null) completions.addAll(manager.getAllItems().stream().map(i -> i.getId()).collect(Collectors.toList()));
                 }

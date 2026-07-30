@@ -150,7 +150,7 @@ public class AdvancedCustomItem {
     public Map<ItemAbilityType, List<ItemAbilityData>> getAbilities() { return abilities; }
     public void setAbilities(Map<ItemAbilityType, List<ItemAbilityData>> abilities) { this.abilities = abilities; }
 
-    public Map<Enchantment, Integer> getEnchants() { return enchants; }
+    public Map<Enchantment, Integer> getEnchants() { return new LinkedHashMap<>(enchants); }
     public void setEnchants(Map<Enchantment, Integer> enchants) { this.enchants = new LinkedHashMap<>(enchants); }
 
     public ArmorPiece getArmorPiece() { return armorPiece; }

@@ -4,26 +4,31 @@ import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketListenerAbstract;
 import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
+import com.github.retrooper.packetevents.protocol.component.ComponentType;
+import com.github.retrooper.packetevents.protocol.component.ComponentTypes;
+import com.github.retrooper.packetevents.protocol.component.builtin.item.ItemLore;
+import com.github.retrooper.packetevents.protocol.component.builtin.item.ItemTooltipDisplay;
 import com.github.retrooper.packetevents.protocol.item.ItemStack;
+import com.github.retrooper.packetevents.protocol.nbt.NBTCompound;
 import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerSetSlot;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerWindowItems;
 import io.github.retrooper.packetevents.util.SpigotConversionUtil;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
-import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
-import theLifesteal.ColorUtils;
 import theLifesteal.TheLifesteal;
 import theLifesteal.abilities.ItemAbilityManager;
-import java.util.Optional;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Intercepts outgoing inventory packets and injects full rendered lore
@@ -40,10 +45,8 @@ public class ItemDisplayPacketListener extends PacketListenerAbstract {
     private final NamespacedKey itemIdKey;
     private final JavaPlugin plugin;
 
-    // Track which windows we've already decorated to avoid duplicate work
-    private final Set<Integer> recentlyDecoratedWindows = ConcurrentHashMap.newKeySet();
-
     private static final LegacyComponentSerializer LEGACY_SERIALIZER = LegacyComponentSerializer.legacySection();
+    private static final boolean DEBUG = false;
 
     public ItemDisplayPacketListener(AdvancedCustomItemManager itemManager,
                                      ItemAbilityManager abilityManager) {
@@ -57,28 +60,28 @@ public class ItemDisplayPacketListener extends PacketListenerAbstract {
 
     @Override
     public void onPacketSend(PacketSendEvent event) {
-        if (event.getPacketType() == PacketType.Play.Server.WINDOW_ITEMS) {
-            handleWindowItems(event);
-        } else if (event.getPacketType() == PacketType.Play.Server.SET_SLOT) {
-            handleSetSlot(event);
+        try {
+            if (event.getPacketType() == PacketType.Play.Server.WINDOW_ITEMS) {
+                handleWindowItems(event);
+            } else if (event.getPacketType() == PacketType.Play.Server.SET_SLOT) {
+                handleSetSlot(event);
+            }
+        } catch (Exception e) {
+            if (DEBUG) {
+                plugin.getLogger().warning("[PacketLore] Error processing packet: " + e.getMessage());
+                e.printStackTrace();
+            }
         }
     }
 
     private void handleWindowItems(PacketSendEvent event) {
         WrapperPlayServerWindowItems wrapper = new WrapperPlayServerWindowItems(event);
-        int windowId = wrapper.getWindowId();
-
-        // Mark this window as recently decorated
-        recentlyDecoratedWindows.add(windowId);
-        // Schedule cleanup after 5 ticks
-        Bukkit.getGlobalRegionScheduler().runDelayed(
-                plugin,
-                task -> recentlyDecoratedWindows.remove(windowId),
-                5L
-        );
-
         List<ItemStack> items = wrapper.getItems();
         boolean modified = false;
+
+        if (DEBUG) {
+            plugin.getLogger().info("[PacketLore] Processing WINDOW_ITEMS with " + items.size() + " items");
+        }
 
         for (int i = 0; i < items.size(); i++) {
             ItemStack packetItem = items.get(i);
@@ -91,11 +94,11 @@ public class ItemDisplayPacketListener extends PacketListenerAbstract {
             }
         }
 
-        // Also handle the carried (cursor) item
+        // Handle the carried (cursor) item - uses Optional<ItemStack>
         Optional<ItemStack> carriedOpt = wrapper.getCarriedItem();
         if (carriedOpt.isPresent()) {
             ItemStack carried = carriedOpt.get();
-            if (!carried.isEmpty()) {
+            if (carried != null && !carried.isEmpty()) {
                 ItemStack decoratedCarried = injectDisplay(carried);
                 if (decoratedCarried != null) {
                     wrapper.setCarriedItem(decoratedCarried);
@@ -111,15 +114,13 @@ public class ItemDisplayPacketListener extends PacketListenerAbstract {
 
     private void handleSetSlot(PacketSendEvent event) {
         WrapperPlayServerSetSlot wrapper = new WrapperPlayServerSetSlot(event);
-
-        // If this window was recently fully decorated via WINDOW_ITEMS,
-        // skip individual SET_SLOT decoration to avoid duplicate work
-        if (recentlyDecoratedWindows.contains(wrapper.getWindowId())) {
-            return;
-        }
-
         ItemStack packetItem = wrapper.getItem();
+
         if (packetItem == null || packetItem.isEmpty()) return;
+
+        if (DEBUG) {
+            plugin.getLogger().info("[PacketLore] Processing SET_SLOT");
+        }
 
         ItemStack decorated = injectDisplay(packetItem);
         if (decorated != null) {
@@ -137,11 +138,14 @@ public class ItemDisplayPacketListener extends PacketListenerAbstract {
     private ItemStack injectDisplay(ItemStack packetItem) {
         if (packetItem == null || packetItem.isEmpty()) return null;
 
-        // Convert to Bukkit ItemStack to read PDC
+        // Try converting to Bukkit ItemStack first
         org.bukkit.inventory.ItemStack bukkitItem;
         try {
             bukkitItem = SpigotConversionUtil.toBukkitItemStack(packetItem);
         } catch (Exception e) {
+            if (DEBUG) {
+                plugin.getLogger().warning("[PacketLore] Failed to convert PacketEvents item to Bukkit: " + e.getMessage());
+            }
             return null;
         }
 
@@ -149,44 +153,123 @@ public class ItemDisplayPacketListener extends PacketListenerAbstract {
             return null;
         }
 
-        // Read custom_item_id from PDC
-        ItemMeta meta = bukkitItem.getItemMeta();
-        if (meta == null) return null;
+        // Try reading custom_item_id from PDC
+        String itemId = null;
+        try {
+            ItemMeta meta = bukkitItem.getItemMeta();
+            if (meta != null) {
+                itemId = meta.getPersistentDataContainer()
+                        .get(itemIdKey, PersistentDataType.STRING);
+            }
+        } catch (Exception e) {
+            if (DEBUG) {
+                plugin.getLogger().warning("[PacketLore] Failed to read PDC: " + e.getMessage());
+            }
+        }
 
-        String itemId = meta.getPersistentDataContainer()
-                .get(itemIdKey, PersistentDataType.STRING);
-        if (itemId == null) return null;
+        // Fallback: try reading directly from PacketEvents NBT if PDC failed
+        if (itemId == null) {
+            try {
+                itemId = readItemIdFromNBT(packetItem);
+            } catch (Exception e) {
+                if (DEBUG) {
+                    plugin.getLogger().warning("[PacketLore] Failed to read NBT: " + e.getMessage());
+                }
+            }
+        }
+
+        if (itemId == null) {
+            return null; // Not a custom item, no lore to inject
+        }
 
         // Look up definition
         AdvancedCustomItem definition = itemManager.getItem(itemId);
-        if (definition == null) return null;
+        if (definition == null) {
+            if (DEBUG) {
+                plugin.getLogger().warning("[PacketLore] Unknown item ID: " + itemId);
+            }
+            return null;
+        }
 
         // Get or build cached lore
         List<Component> loreComponents = getOrBuildLore(itemId, definition);
 
-        // Clone the Bukkit item for modification
-        org.bukkit.inventory.ItemStack clone = bukkitItem.clone();
-        ItemMeta cloneMeta = clone.getItemMeta();
-        if (cloneMeta == null) return null;
-
-        // Set the lore on the clone
-        cloneMeta.lore(loreComponents);
-
-        // Suppress vanilla tooltip sections that we render ourselves
-        cloneMeta.addItemFlags(
-                ItemFlag.HIDE_ATTRIBUTES,
-                ItemFlag.HIDE_ENCHANTS,
-                ItemFlag.HIDE_ARMOR_TRIM,
-                ItemFlag.HIDE_DYE,
-                ItemFlag.HIDE_DESTROYS,
-                ItemFlag.HIDE_PLACED_ON
-        );
-
-        clone.setItemMeta(cloneMeta);
-
-        // Convert back to PacketEvents ItemStack
+        /*
+         * Do not convert the decorated Bukkit stack back into a PacketEvents
+         * stack here.  That conversion is lossy for newer item components on
+         * 1.21.x.  In particular, it can drop CUSTOM_DATA (where the item ID
+         * lives) and ITEM_MODEL while retaining the lore that was just added.
+         *
+         * A client can send an inventory/creative action after receiving this
+         * packet.  If the packet was lossy, that client-visible stack can then
+         * become the real server-side stack: exactly the corruption this
+         * listener must never cause.
+         *
+         * Copy the original PacketEvents stack instead and replace only its
+         * display component.  All custom data and every other component are
+         * retained by the copy.
+         */
         try {
-            return SpigotConversionUtil.fromBukkitItemStack(clone);
+            ItemStack result = packetItem.copy();
+            result.setComponent(ComponentTypes.LORE, new ItemLore(loreComponents));
+            suppressVanillaTooltipSections(result);
+
+            if (DEBUG) {
+                plugin.getLogger().info("[PacketLore] Successfully injected lore for item: " + itemId);
+            }
+            return result;
+        } catch (Exception e) {
+            if (DEBUG) {
+                plugin.getLogger().warning("[PacketLore] Failed to inject lore component: " + e.getMessage());
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Keep the old ItemMeta flag behavior without doing an ItemStack
+     * conversion.  The conversion was the data-loss bug; the tooltip display
+     * component is the lossless PacketEvents equivalent of those flags.
+     */
+    private void suppressVanillaTooltipSections(ItemStack item) {
+        ItemTooltipDisplay tooltip = item.getComponent(ComponentTypes.TOOLTIP_DISPLAY)
+                .orElseGet(() -> new ItemTooltipDisplay(false, new HashSet<>()));
+
+        Set<ComponentType<?>> hidden = new HashSet<>(tooltip.getHiddenComponents());
+        hidden.add(ComponentTypes.ATTRIBUTE_MODIFIERS);
+        hidden.add(ComponentTypes.ENCHANTMENTS);
+        hidden.add(ComponentTypes.TRIM);
+        hidden.add(ComponentTypes.DYED_COLOR);
+        hidden.add(ComponentTypes.CAN_BREAK);
+        hidden.add(ComponentTypes.CAN_PLACE_ON);
+        tooltip.setHiddenComponents(hidden);
+        item.setComponent(ComponentTypes.TOOLTIP_DISPLAY, tooltip);
+    }
+
+    /**
+     * Attempts to read the custom_item_id directly from the PacketEvents ItemStack's NBT
+     * as a fallback when Bukkit PDC conversion doesn't work.
+     */
+    private String readItemIdFromNBT(ItemStack packetItem) {
+        try {
+            // The PDC is stored under: minecraft:custom_data -> PublicBukkitValues -> thelifesteal:custom_item_id
+            // getComponent() returns Optional<NBTCompound>
+            Optional<NBTCompound> customDataOpt =
+                    packetItem.getComponent(
+                            com.github.retrooper.packetevents.protocol.component.ComponentTypes.CUSTOM_DATA
+                    );
+
+            if (!customDataOpt.isPresent()) return null;
+
+            NBTCompound customData = customDataOpt.get();
+            if (customData == null) return null;
+
+            NBTCompound bukkitValues =
+                    customData.getCompoundTagOrNull("PublicBukkitValues");
+            if (bukkitValues == null) return null;
+
+            String value = bukkitValues.getStringTagValueOrNull("thelifesteal:custom_item_id");
+            return value;
         } catch (Exception e) {
             return null;
         }
@@ -197,14 +280,19 @@ public class ItemDisplayPacketListener extends PacketListenerAbstract {
      */
     private List<Component> getOrBuildLore(String itemId, AdvancedCustomItem definition) {
         List<Component> cached = loreCache.get(itemId);
-        if (cached != null) return cached;
+        if (cached != null) {
+            return cached;
+        }
 
         // Build lore from definition
         List<String> loreLines = ItemLoreBuilder.buildLore(definition, abilityManager);
         List<Component> components = new ArrayList<>(loreLines.size());
         for (String line : loreLines) {
-            // Use LegacyComponentSerializer to parse color codes
-            components.add(LEGACY_SERIALIZER.deserialize(ColorUtils.colorize(line)));
+            // Deserialize the legacy color-coded string to a Component
+            Component component = LEGACY_SERIALIZER.deserialize(line);
+            // Force italic: false to prevent Minecraft's default italic lore styling
+            component = component.style(component.style().decoration(TextDecoration.ITALIC, false));
+            components.add(component);
         }
 
         loreCache.put(itemId, components);
@@ -230,5 +318,6 @@ public class ItemDisplayPacketListener extends PacketListenerAbstract {
      */
     public void register() {
         PacketEvents.getAPI().getEventManager().registerListener(this);
+        plugin.getLogger().info("§a✓ Packet Lore Injection loaded!");
     }
 }

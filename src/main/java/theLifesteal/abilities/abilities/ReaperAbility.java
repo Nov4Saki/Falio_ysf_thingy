@@ -23,8 +23,6 @@ import theLifesteal.abilities.ItemAbilityData;
 import theLifesteal.abilities.ItemAbilityType;
 import theLifesteal.customitem.AdvancedCustomItem;
 import theLifesteal.customitem.AdvancedCustomItemManager;
-import theLifesteal.customitem.ItemComponentUtil;
-import theLifesteal.customitem.ItemLoreBuilder;
 
 import java.util.*;
 
@@ -120,6 +118,8 @@ public class ReaperAbility extends ItemAbility implements Listener {
         if (currentBonus >= maxBonusDamage) return; // Cap reached
 
         double newBonus = Math.min(currentBonus + damagePerKill, maxBonusDamage);
+
+        // Store the bonus in PDC (for potential future dynamic lore display)
         meta.getPersistentDataContainer().set(reaperBonusKey, PersistentDataType.DOUBLE, newBonus);
 
         // Calculate and apply ATTACK_DAMAGE attribute modifier
@@ -136,24 +136,10 @@ public class ReaperAbility extends ItemAbility implements Listener {
         );
         meta.addAttributeModifier(Attribute.ATTACK_DAMAGE, modifier);
 
-        // Update item lore to display current bonus power
-        List<String> builtLore = ItemLoreBuilder.buildLore(customItem, lifesteal.getAbilityManager());
-        List<String> updatedLore = new ArrayList<>();
-        boolean insertedBonus = false;
-
-        for (String line : builtLore) {
-            updatedLore.add(line);
-            if (line.contains("Reaper") && !insertedBonus) {
-                updatedLore.add(ColorUtils.colorize("&7  &c✦ Current Bonus: +" + formatDamage(newBonus) + " Damage &8(Max +" + formatDamage(maxBonusDamage) + "&8)"));
-                insertedBonus = true;
-            }
-        }
-        if (!insertedBonus) {
-            updatedLore.add(ColorUtils.colorize("&7  &c✦ Current Bonus: +" + formatDamage(newBonus) + " Damage &8(Max +" + formatDamage(maxBonusDamage) + "&8)"));
-        }
-
-        meta.setLore(updatedLore);
-        ItemComponentUtil.setMetaPreservingComponents(item, meta);
+        // FIXED: Do NOT bake lore onto the item!
+        // Lore is injected at packet-send time by ItemDisplayPacketListener.
+        // The bonus damage is stored in PDC (reaper_bonus_damage) for future per-instance lore display.
+        item.setItemMeta(meta);
 
         killer.playSound(killer.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
         killer.sendMessage(ColorUtils.colorize("&c&l✦ REAPER! &7Your weapon gained &c+" + formatDamage(damagePerKill) + " &7extra damage! &8(Current: +" + formatDamage(newBonus) + "/" + formatDamage(maxBonusDamage) + ")"));
