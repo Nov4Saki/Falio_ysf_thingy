@@ -58,44 +58,44 @@ public class CommandHandler implements CommandExecutor, TabCompleter {
     private boolean handleReloadItemsCommand(CommandSender sender, String[] args) {
         if (!sender.hasPermission("thelifesteal.admin")) { sender.sendMessage(ColorUtils.colorize(configManager.getMessage("no-permission"))); return true; }
 
-        var updateManager = plugin.getItemUpdateManager();
-        if (updateManager == null) { sender.sendMessage(ColorUtils.colorize("&cItem Update Manager not available.")); return true; }
+        var integrityManager = plugin.getItemIntegrityManager();
+        if (integrityManager == null) { sender.sendMessage(ColorUtils.colorize("&cItem Integrity Manager not available.")); return true; }
 
         if (args.length == 0) {
-            int updated = updateManager.refreshAllPlayers();
+            int updated = integrityManager.refreshAllPlayers();
             sender.sendMessage(ColorUtils.colorize("&a⟳ Refreshed items for all online players. &7(" + updated + " items updated)"));
             return true;
         }
 
         switch (args[0].toLowerCase()) {
-            case "enable" -> { updateManager.setEnabled(true); sender.sendMessage(ColorUtils.colorize("&a✔ Item updates enabled.")); }
-            case "disable" -> { updateManager.setEnabled(false); sender.sendMessage(ColorUtils.colorize("&c✖ Item updates disabled.")); }
+            case "enable" -> { integrityManager.setEnabled(true); sender.sendMessage(ColorUtils.colorize("&a✔ Item updates enabled.")); }
+            case "disable" -> { integrityManager.setEnabled(false); sender.sendMessage(ColorUtils.colorize("&c✖ Item updates disabled.")); }
             case "onjoin" -> {
-                boolean current = updateManager.isOnJoin();
-                updateManager.setOnJoin(!current);
+                boolean current = integrityManager.isOnJoin();
+                integrityManager.setOnJoin(!current);
                 sender.sendMessage(ColorUtils.colorize("&eOn-join updates: " + (!current ? "&aENABLED" : "&cDISABLED")));
             }
             case "onworldchange" -> {
-                boolean current = updateManager.isOnWorldChange();
-                updateManager.setOnWorldChange(!current);
+                boolean current = integrityManager.isOnWorldChange();
+                integrityManager.setOnWorldChange(!current);
                 sender.sendMessage(ColorUtils.colorize("&eOn-world-change updates: " + (!current ? "&aENABLED" : "&cDISABLED")));
             }
             case "status" -> {
                 sender.sendMessage(ColorUtils.colorize("&6&lItem Update Status:"));
-                sender.sendMessage(ColorUtils.colorize("&e  Enabled: " + (updateManager.isEnabled() ? "&aYes" : "&cNo")));
-                sender.sendMessage(ColorUtils.colorize("&e  On Join: " + (updateManager.isOnJoin() ? "&aYes" : "&cNo")));
-                sender.sendMessage(ColorUtils.colorize("&e  On World Change: " + (updateManager.isOnWorldChange() ? "&aYes" : "&cNo")));
+                sender.sendMessage(ColorUtils.colorize("&e  Enabled: " + (integrityManager.isEnabled() ? "&aYes" : "&cNo")));
+                sender.sendMessage(ColorUtils.colorize("&e  On Join: " + (integrityManager.isOnJoin() ? "&aYes" : "&cNo")));
+                sender.sendMessage(ColorUtils.colorize("&e  On World Change: " + (integrityManager.isOnWorldChange() ? "&aYes" : "&cNo")));
             }
             case "purge" -> {
                 if (args.length < 2) { sender.sendMessage(ColorUtils.colorize("&cUsage: /reloaditems purge <itemId>")); return true; }
                 String itemId = args[1];
-                int purged = updateManager.purgeItem(itemId);
+                int purged = integrityManager.purgeItem(itemId);
                 sender.sendMessage(ColorUtils.colorize("&c🗑 Purged &4" + purged + " &cinstances of &f" + itemId + "&c."));
             }
             default -> {
                 Player target = plugin.getServer().getPlayer(args[0]);
                 if (target == null) { sender.sendMessage(ColorUtils.colorize("&cPlayer not found: " + args[0])); return true; }
-                int updated = updateManager.refreshSinglePlayer(target);
+                int updated = integrityManager.refreshSinglePlayer(target);
                 sender.sendMessage(ColorUtils.colorize("&a⟳ Refreshed items for &e" + target.getName() + "&a. &7(" + updated + " items updated)"));
             }
         }

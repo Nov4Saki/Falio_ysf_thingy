@@ -101,7 +101,6 @@ public class HeartManager {
     public boolean removeHeartOnDeath(Player player) {
         AttributeInstance maxHealth = player.getAttribute(Attribute.MAX_HEALTH);
         if (maxHealth == null) return false;
-        plugin.getLogger().info("Drop chance: " + configManager.getDropChance() + " | Random: " + Math.random());
 
         double currentMax = maxHealth.getBaseValue();
         double minHealth = configManager.getMinimumMaxHealth();

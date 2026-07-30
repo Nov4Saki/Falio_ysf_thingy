@@ -21,6 +21,21 @@ public class AbilityKillTracker implements Listener {
     public AbilityKillTracker(JavaPlugin plugin) {
         this.plugin = plugin;
         plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        startCleanupTask(); // NEW: periodic cleanup
+    }
+
+    /**
+     * NEW: Periodically clean up expired attributions to prevent memory leak.
+     * Runs every 30 seconds (600 ticks).
+     */
+    private void startCleanupTask() {
+        theLifesteal.util.FoliaScheduler.runGlobalTimer(plugin, () -> {
+            long now = System.currentTimeMillis();
+            victimAttributions.entrySet().removeIf(entry -> {
+                AbilityAttribution attr = entry.getValue();
+                return attr == null || attr.isExpired();
+            });
+        }, 600L, 600L);
     }
 
     /**
@@ -36,12 +51,13 @@ public class AbilityKillTracker implements Listener {
      */
     public void recordAbilityDamage(Player caster, LivingEntity victim, String abilityId, long durationMs) {
         if (caster == null || victim == null) return;
-        if (caster.getUniqueId().equals(victim.getUniqueId())) return; // Self-damage doesn't count
+        if (caster.getUniqueId().equals(victim.getUniqueId())) return;
 
         long now = System.currentTimeMillis();
         long expireTime = now + durationMs;
 
-        victimAttributions.put(victim.getUniqueId(), new AbilityAttribution(caster.getUniqueId(), abilityId, now, expireTime));
+        victimAttributions.put(victim.getUniqueId(),
+                new AbilityAttribution(caster.getUniqueId(), abilityId, now, expireTime));
     }
 
     /**

@@ -30,6 +30,7 @@ public class CraftingManager {
     private final AtomicBoolean saveQueued = new AtomicBoolean(false);
     private Map<UUID, List<CraftingProcessData>> pendingSnapshot = null;
     private final Object saveLock = new Object();
+    private boolean recipeSaveQueued = false;
 
     public CraftingManager(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -66,6 +67,17 @@ public class CraftingManager {
             }
             if (removed > 0) { plugin.getLogger().info("Cleaned up " + removed + " old crafting processes"); forceSave(); }
         }, 6000L, 6000L);
+    }
+    private void scheduleRecipeSave() {
+        if (recipeSaveQueued) return;
+        recipeSaveQueued = true;
+        FoliaScheduler.runAsyncLater(plugin, () -> {
+            try {
+                saveRecipes();
+            } finally {
+                recipeSaveQueued = false;
+            }
+        }, 60L); // Debounce to 3 seconds
     }
 
     private void registerDefaultRecipes() {}
@@ -382,8 +394,14 @@ public class CraftingManager {
         return processes != null ? new ArrayList<>(processes) : Collections.emptyList();
     }
 
-    public void registerRecipe(CraftingRecipe recipe) { recipes.put(recipe.getId(), recipe); saveRecipes(); }
-    public void unregisterRecipe(String id) { recipes.remove(id); saveRecipes(); }
+    public void registerRecipe(CraftingRecipe recipe) {
+        recipes.put(recipe.getId(), recipe);
+        scheduleRecipeSave(); // Changed from saveRecipes()
+    }
+    public void unregisterRecipe(String id) {
+        recipes.remove(id);
+        scheduleRecipeSave(); // Changed from saveRecipes()
+    }
     public CraftingRecipe getRecipe(String id) { return recipes.get(id); }
     public Collection<CraftingRecipe> getAllRecipes() { return recipes.values(); }
 
@@ -401,7 +419,9 @@ public class CraftingManager {
     public int refreshRecipeResults() {
         var advancedItemManager = ((TheLifesteal) plugin).getAdvancedItemManager();
         if (advancedItemManager == null) return 0;
-        return advancedItemManager.refreshRecipeResults(this);
+        int updated = advancedItemManager.refreshRecipeResults(this);
+        if (updated > 0) scheduleRecipeSave(); // Changed from saveRecipes()
+        return updated;
     }
 
     private String formatMaterialName(Material material) { return material.name().replace("_", " ").toLowerCase(); }

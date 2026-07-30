@@ -15,8 +15,7 @@ import theLifesteal.customitem.CustomItemGUI;
 import theLifesteal.customitem.CustomItemListener;
 import theLifesteal.customitem.CustomItemRestrictionListener;
 import theLifesteal.customitem.CustomItemEffectListener;
-import theLifesteal.customitem.ItemUpdateManager;
-import theLifesteal.customitem.ItemModelPreservationListener;
+import theLifesteal.customitem.ItemIntegrityManager;
 
 import java.util.UUID;
 import java.util.logging.Level;
@@ -44,7 +43,7 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
     private CustomItemListener customItemListener;
     private CustomItemEffectListener customItemEffectListener;
     private CustomEnchantGUI customEnchantGUI;
-    private ItemUpdateManager itemUpdateManager;
+    private ItemIntegrityManager itemIntegrityManager;
 
     // Ability System
     private ItemAbilityManager abilityManager;
@@ -73,11 +72,7 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         this.advancedItemManager.setAbilityManager(abilityManager);
         this.advancedItemManager.loadItems();
         advancedItemManager.registerDefaultItems(getConfig());
-
-        // Item update manager (self-registers as Listener)
-        this.itemUpdateManager = new ItemUpdateManager(this, advancedItemManager);
-        getServer().getPluginManager().registerEvents(
-                new ItemModelPreservationListener(this, advancedItemManager, itemUpdateManager), this);
+        this.itemIntegrityManager = new ItemIntegrityManager(this, advancedItemManager);
 
         this.customItemGUI = new CustomItemGUI(this, advancedItemManager);
         this.abilityGUI = new ItemAbilityGUI(this, abilityManager);
@@ -101,7 +96,7 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         getLogger().info("§a✓ Custom Item Potion Effects initialized");
         getLogger().info("§a✓ Item Ability System initialized");
         getLogger().info("§a✓ Custom Enchant System initialized");
-        getLogger().info("§a✓ Item Update Manager initialized (event-driven)");
+        getLogger().info("§a⟳ §eItem Integrity System loaded! §a⟳");
 
         // Register listeners
         this.deathListener = new DeathListener(this);
@@ -143,7 +138,6 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
         getLogger().log(Level.INFO, "§d🧪 §ePotion Effects System loaded! §d🧪");
         getLogger().log(Level.INFO, "§6✨ §eAbility System loaded! §6✨");
         getLogger().log(Level.INFO, "§5✨ §eEnchant System loaded! §5✨");
-        getLogger().log(Level.INFO, "§a⟳ §eItem Update System loaded (verify-on-use)! §a⟳");
     }
 
     private void registerAbilities() {
@@ -221,7 +215,7 @@ public final class TheLifesteal extends JavaPlugin implements Listener {
     public ItemAbilityManager getAbilityManager() { return abilityManager; }
     public ItemAbilityGUI getAbilityGUI() { return abilityGUI; }
     public TotemProtectionManager getTotemProtectionManager() { return totemProtectionManager; }
-    public ItemUpdateManager getItemUpdateManager() { return itemUpdateManager; }
+    public ItemIntegrityManager getItemIntegrityManager() { return itemIntegrityManager; }
 
     @Override
     public void onDisable() {

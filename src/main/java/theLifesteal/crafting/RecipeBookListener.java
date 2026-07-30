@@ -13,6 +13,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 import theLifesteal.ColorUtils;
 
 import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 public class RecipeBookListener implements Listener {
 
@@ -20,7 +22,7 @@ public class RecipeBookListener implements Listener {
     private final RecipeBookItem recipeBookItem;
     private final CraftingGUI craftingGUI;
     private final CraftingManager craftingManager;
-    private final HashMap<Player, ItemStack> deathBooks;
+    private final Map<UUID, ItemStack> deathBooks; // Changed from HashMap<Player, ItemStack>
 
     public RecipeBookListener(JavaPlugin plugin, RecipeBookItem recipeBookItem,
                               CraftingGUI craftingGUI, CraftingManager craftingManager) {
@@ -28,7 +30,7 @@ public class RecipeBookListener implements Listener {
         this.recipeBookItem = recipeBookItem;
         this.craftingGUI = craftingGUI;
         this.craftingManager = craftingManager;
-        this.deathBooks = new HashMap<>();
+        this.deathBooks = new HashMap<>(); // Changed from HashMap<>
     }
 
     @EventHandler
@@ -54,7 +56,8 @@ public class RecipeBookListener implements Listener {
         Player player = event.getPlayer();
         if (recipeBookItem.giveOnRespawn()) {
             theLifesteal.util.FoliaScheduler.runEntityLater(player, plugin, () -> {
-                ItemStack savedBook = deathBooks.remove(player);
+                // Changed: use UUID to retrieve saved book
+                ItemStack savedBook = deathBooks.remove(player.getUniqueId());
                 boolean hasBook = false;
                 for (ItemStack item : player.getInventory().getContents()) {
                     if (recipeBookItem.isRecipeBook(item)) {
@@ -63,8 +66,11 @@ public class RecipeBookListener implements Listener {
                     }
                 }
                 if (!hasBook) {
-                    if (savedBook != null) player.getInventory().setItem(recipeBookItem.getSlot(), savedBook);
-                    else giveRecipeBook(player);
+                    if (savedBook != null) {
+                        player.getInventory().setItem(recipeBookItem.getSlot(), savedBook);
+                    } else {
+                        giveRecipeBook(player);
+                    }
                 }
             }, 5L);
         }
@@ -73,17 +79,24 @@ public class RecipeBookListener implements Listener {
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getEntity();
+        UUID playerId = player.getUniqueId(); // Store UUID for map key
+
         event.getDrops().removeIf(item -> {
             if (recipeBookItem.isRecipeBook(item)) {
-                deathBooks.put(player, item.clone());
+                // Changed: store with UUID key
+                deathBooks.put(playerId, item.clone());
                 return true;
             }
             return false;
         });
+
         ItemStack[] contents = player.getInventory().getContents();
         for (int i = 0; i < contents.length; i++) {
             if (recipeBookItem.isRecipeBook(contents[i])) {
-                if (!deathBooks.containsKey(player)) deathBooks.put(player, contents[i].clone());
+                // Changed: only store if not already saved
+                if (!deathBooks.containsKey(playerId)) {
+                    deathBooks.put(playerId, contents[i].clone());
+                }
                 contents[i] = null;
             }
         }
@@ -113,15 +126,13 @@ public class RecipeBookListener implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
         String title = event.getView().getTitle();
 
-        // ===== EXCLUDE ADVANCED CUSTOM ITEM GUI TITLES =====
         if (title.contains("Item Creator") || title.contains("Edit Item") ||
                 title.contains("Attributes") || title.contains("Name & Lore") ||
                 title.contains("Flags") || title.contains("Choose Base") ||
                 title.contains("Coming Soon")) {
-            return; // let CustomItemListener handle these
+            return;
         }
 
-        // ---- Recipe Editor handling ----
         if (title.contains("Recipe Editor")) {
             if (event.getClickedInventory() != null &&
                     event.getClickedInventory().equals(event.getView().getBottomInventory())) {
@@ -136,14 +147,12 @@ public class RecipeBookListener implements Listener {
             return;
         }
 
-        // ---- Other crafting GUIs (main, details, active, admin) ----
         if (isCraftingGUI(title)) {
             event.setCancelled(true);
             craftingGUI.handleClick(player, title, event.getSlot(), event.getClick());
             return;
         }
 
-        // ---- Recipe book protection ----
         int bookSlot = recipeBookItem.getSlot();
         ItemStack current = event.getCurrentItem();
         ItemStack cursor = event.getCursor();
@@ -202,7 +211,8 @@ public class RecipeBookListener implements Listener {
         ItemStack slotItem = player.getInventory().getItem(bookSlot);
         if (slotItem != null && slotItem.getType() != Material.AIR) {
             if (recipeBookItem.isRecipeBook(slotItem)) return;
-            HashMap<Integer, ItemStack> leftover = player.getInventory().addItem(slotItem.clone());
+            HashMap<Integer, ItemStack> leftover = new HashMap<>();
+            leftover.putAll(player.getInventory().addItem(slotItem.clone()));
             if (!leftover.isEmpty()) {
                 player.sendMessage(ColorUtils.colorize("&cCould not give Recipe Book - inventory full!"));
                 return;

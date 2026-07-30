@@ -13,7 +13,6 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.enchantments.Enchantment;
-import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.EquipmentSlotGroup;
@@ -22,7 +21,6 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import theLifesteal.ColorUtils;
 import theLifesteal.abilities.ItemAbilityManager;
-import theLifesteal.util.FoliaScheduler;
 
 import java.io.File;
 import java.io.IOException;
@@ -375,13 +373,8 @@ public class AdvancedCustomItemManager {
 
         result.setItemMeta(meta);
 
-        // setItemMeta may rebuild only the Bukkit-known portion of an item.
-        // Restore every other Paper/Minecraft component from the base item.
         ItemComponentUtil.preserveUnmanagedComponents(result, originalBase);
 
-        // Item model and custom model data are native 1.21 components. Set
-        // them directly after the ItemMeta round-trip so they cannot be
-        // silently dropped by CraftMetaItem.
         if (item.getItemModel() != null) {
             result.setData(DataComponentTypes.ITEM_MODEL,
                     Key.key(item.getItemModel().getNamespace(), item.getItemModel().getKey()));
@@ -431,10 +424,6 @@ public class AdvancedCustomItemManager {
         return stack;
     }
 
-    /**
-     * Assign the durable per-stack identity required to keep equipment
-     * categories from merging. Returns true only when a new identity was added.
-     */
     public boolean ensureInstanceUuid(ItemStack stack, AdvancedCustomItem item) {
         if (stack == null || item == null || !item.shouldGetInstanceUuid()) return false;
         if (getInstanceUuid(stack) != null) return false;
@@ -443,10 +432,6 @@ public class AdvancedCustomItemManager {
         return true;
     }
 
-    /**
-     * Replace a category item's instance identity. Used only when a legacy
-     * stack is split into individual non-stackable copies.
-     */
     public void assignFreshInstanceUuid(ItemStack stack, AdvancedCustomItem item) {
         if (stack == null || item == null || !item.shouldGetInstanceUuid()) return;
 
@@ -501,9 +486,9 @@ public class AdvancedCustomItemManager {
         }
     }
 
-    public int purgeInstances(String itemId, ItemUpdateManager updateManager) {
-        if (updateManager == null) return 0;
-        return updateManager.purgeItem(itemId);
+    public int purgeInstances(String itemId, ItemIntegrityManager integrityManager) {
+        if (integrityManager == null) return 0;
+        return integrityManager.purgeItem(itemId);
     }
 
     public int refreshRecipeResults(theLifesteal.crafting.CraftingManager craftingManager) {
